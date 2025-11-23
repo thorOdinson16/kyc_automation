@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0b0f18;
+  --card: #0f1724;
+  --muted: #9aa4b2;
+  --accent: linear-gradient(90deg, #6f2bd9 0%, #00e5ff 100%);
+}
+
+body {
+  @apply text-gray-200 antialiased;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(111, 43, 217, 0.06), transparent 10%),
+    radial-gradient(circle at 90% 90%, rgba(0, 229, 255, 0.03), transparent 10%);
+}
+
+.btn-primary {
+  @apply px-5 py-3 rounded-lg font-semibold shadow-lg text-white;
+  background: var(--accent);
+}
+
+.btn-secondary {
+  @apply px-5 py-3 rounded-lg font-semibold bg-gray-700 text-white;
+}
+
+.card {
+  @apply rounded-2xl p-6 shadow-xl border border-gray-800;
+  background-color: var(--card);
+}
+
+.input-field {
+  @apply w-full px-4 py-3 rounded-lg bg-transparent border border-gray-700 focus:border-neon-400 outline-none;
+}

@@ -1,0 +1,67 @@
+###############################
+# Global
+###############################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.DS_Store
+.env
+.env.*
+!.env.example
+
+###############################
+# Backend
+###############################
+backend/.pytest_cache/
+backend/__pycache__/
+backend/uvicorn/
+backend/uploads/
+backend/encrypted/
+backend/documents/
+
+# Python virtual environment
+backend/venv/
+venv/
+
+# Alembic migrations cache
+backend/alembic/__pycache__/
+
+# Test cache
+backend/tests/__pycache__/
+
+###############################
+# Node / Frontend
+###############################
+frontend/node_modules/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+frontend/dist/
+frontend/build/
+
+# Temp files created by tools
+frontend/.parcel-cache/
+frontend/.vite/
+frontend/.next/
+
+###############################
+# Zip, logs, misc
+###############################
+*.zip
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+
+###############################
+# OS items
+###############################
+Thumbs.db
+
+commands.txt
+setup.bat
+documents/
+.pytest_cache/
+*.jpeg
