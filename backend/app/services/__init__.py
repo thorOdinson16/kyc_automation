@@ -6,3 +6,5 @@ from .entity_service import entity_service
 from .shap_service import shap_service
 from .audit_service import audit_service
 from .encryption_service import encryption_service
+from .pdf_service import pdf_service
+from . import document_verification_service

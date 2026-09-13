@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -11,6 +12,7 @@ from app.models.explainability import Explainability
 from app.models.risk_score import RiskScore
 from app.services import (
     audit_service,
+    document_verification_service,
     encryption_service,
     entity_service,
     face_service,
@@ -19,6 +21,7 @@ from app.services import (
     risk_service,
     shap_service,
 )
+from app.services.entity_service import addresses_match, names_match
 
 REQUIRED_DOCUMENTS = {
     "id_front",
@@ -26,6 +29,17 @@ REQUIRED_DOCUMENTS = {
     "utility_bill",
     "selfie",
 }
+
+
+def _suffix_for(document: Document) -> str:
+    mime = (document.mime_type or "").lower()
+    if mime == "application/pdf":
+        return ".pdf"
+    if mime == "image/png":
+        return ".png"
+    if mime == "image/webp":
+        return ".webp"
+    return ".jpg"
 
 
 async def _mark_failed(db, application_id: UUID, error: str) -> None:
@@ -75,19 +89,31 @@ async def process_kyc_pipeline(application_id: UUID):
             selfie_doc = by_type["selfie"][0]
             liveness_docs = by_type.get("liveness", [])
 
-            id_path = await encryption_service.decrypt_file(id_doc.raw_file_path)
-            address_path = await encryption_service.decrypt_file(address_doc.raw_file_path)
-            utility_path = await encryption_service.decrypt_file(utility_doc.raw_file_path)
-            selfie_path = await encryption_service.decrypt_file(selfie_doc.raw_file_path)
+            id_path = await encryption_service.decrypt_file(
+                id_doc.raw_file_path, suffix=_suffix_for(id_doc)
+            )
+            address_path = await encryption_service.decrypt_file(
+                address_doc.raw_file_path, suffix=_suffix_for(address_doc)
+            )
+            utility_path = await encryption_service.decrypt_file(
+                utility_doc.raw_file_path, suffix=_suffix_for(utility_doc)
+            )
+            selfie_path = await encryption_service.decrypt_file(
+                selfie_doc.raw_file_path, suffix=_suffix_for(selfie_doc)
+            )
             frame_paths = [
-                await encryption_service.decrypt_file(doc.raw_file_path)
+                await encryption_service.decrypt_file(
+                    doc.raw_file_path, suffix=_suffix_for(doc)
+                )
                 for doc in liveness_docs
             ]
 
             # ---------------- OCR ----------------
-            ocr_id = await ocr_service.extract_text(id_path)
-            ocr_address = await ocr_service.extract_text(address_path)
-            ocr_utility = await ocr_service.extract_text(utility_path)
+            ocr_id, ocr_address, ocr_utility = await asyncio.gather(
+                ocr_service.extract_text(id_path),
+                ocr_service.extract_text(address_path),
+                ocr_service.extract_text(utility_path),
+            )
 
             for document, ocr_result in (
                 (id_doc, ocr_id),
@@ -141,10 +167,23 @@ async def process_kyc_pipeline(application_id: UUID):
             )
 
             # ---------------- Liveness ----------------
+            if not frame_paths:
+                application.status = ApplicationStatus.REVIEW_REQUIRED
+                application.decision_at = datetime.utcnow()
+                await db.commit()
+                await audit_service.log_action(
+                    db,
+                    application_id,
+                    "LIVENESS_NOT_CAPTURED",
+                    {"reason": "No liveness frames were uploaded"},
+                )
+                await db.commit()
+                return
+
             liveness = await liveness_service.detect_liveness(frame_paths)
 
             if not liveness["is_live"]:
-                application.status = ApplicationStatus.REJECTED
+                application.status = ApplicationStatus.REVIEW_REQUIRED
                 application.decision_at = datetime.utcnow()
                 await db.commit()
                 await audit_service.log_action(
@@ -157,41 +196,144 @@ async def process_kyc_pipeline(application_id: UUID):
                 db, application_id, "LIVENESS_CHECKED", liveness
             )
 
-            # ---------------- Entities ----------------
-            entities = await entity_service.extract_entities(ocr_id["text"])
+            # ---------------- Entities & document verification ----------------
+            def _text_of(ocr_result):
+                return ocr_result.get("latin_text") or ocr_result["text"]
 
-            id_name = (entities.get("name") or "").lower()
-            address_text = (ocr_address.get("text") or "").lower()
-            utility_text = (ocr_utility.get("text") or "").lower()
+            doc_infos = [
+                {"document_type": id_doc.document_type, "document": id_doc, "ocr": ocr_id},
+                {"document_type": address_doc.document_type, "document": address_doc, "ocr": ocr_address},
+                {"document_type": utility_doc.document_type, "document": utility_doc, "ocr": ocr_utility},
+            ]
+            for info in doc_infos:
+                info["text"] = _text_of(info["ocr"])
+                info["entities"] = await entity_service.extract_entities(info["text"])
 
-            name_match = bool(id_name) and id_name in address_text
-            address_value = (entities.get("address") or "").lower()
-            address_match = bool(address_value) and address_value in utility_text
+            roles = document_verification_service.resolve_roles(doc_infos)
 
-            mismatches = []
-            if not name_match:
-                mismatches.append("Name mismatch between ID and address proof")
-            if not address_match:
-                mismatches.append("Address mismatch between ID and utility bill")
+            id_info = roles["id_front"]
+            if id_info is None:
+                # Keep processing so the reviewer sees a precise mismatch.
+                id_info = next(
+                    info for info in doc_infos if info["document_type"] == "id_front"
+                )
 
-            entity_validation = {
-                "name_match": name_match,
-                "address_match": address_match,
-                "mismatches": mismatches,
+            bill_info = roles["utility_bill"]
+            address_info = roles["address_proof"]
+
+            entities_id = id_info["entities"]
+            id_name = entities_id.get("name")
+
+            for reassignment in roles["reassignments"]:
+                await audit_service.log_action(
+                    db, application_id, "DOCUMENT_AUTO_ROUTED", reassignment
+                )
+
+            id_check = document_verification_service.check_id(id_info["text"], entities_id)
+            bill_check = (
+                document_verification_service.check_bill(
+                    bill_info["text"], bill_info["entities"], id_name
+                )
+                if bill_info
+                else {
+                    "slot": "utility_bill",
+                    "detected": "missing",
+                    "is_bill": False,
+                    "is_valid": False,
+                    "name_match": False,
+                }
+            )
+            address_check = (
+                document_verification_service.check_address(
+                    address_info["text"], address_info["entities"], id_name
+                )
+                if address_info
+                else {"slot": "address_proof", "detected": "missing", "is_valid": False}
+            )
+
+            document_checks = {
+                "id_front": id_check,
+                "utility_bill": bill_check,
+                "address_proof": address_check,
             }
 
-            application.extracted_name = entities.get("name")
-            application.extracted_dob = entities.get("date_of_birth")
-            application.extracted_address = entities.get("address")
-            application.extracted_id_number = entities.get("id_number")
+            mismatches = []
+            warnings = []
+            if not id_check["is_valid"]:
+                mismatches.append(
+                    f"ID document is not a recognized ID type ({id_check['detected']})"
+                )
+            if not bill_check["is_valid"]:
+                if not bill_check.get("is_bill"):
+                    mismatches.append("Utility bill does not look like a bill")
+                elif not bill_check.get("name_match"):
+                    mismatches.append("Utility bill does not contain the applicant's name")
+            if not address_check["is_valid"]:
+                mismatches.append(
+                    f"Address proof could not be verified ({address_check['detected']})"
+                )
+
+            address_name = address_info["entities"].get("name") if address_info else None
+            id_address = entities_id.get("address") or (
+                address_info["entities"].get("address") if address_info else None
+            )
+            utility_address = bill_info["entities"].get("address") if bill_info else None
+            bill_address_plausible = document_verification_service.is_plausible_address(
+                utility_address
+            )
+
+            name_match = names_match(id_name, address_name)
+            address_match = addresses_match(id_address, utility_address)
+
+            if id_name and address_name and not name_match:
+                mismatches.append("Name mismatch between ID and address proof")
+            if id_address and bill_address_plausible and not address_match:
+                mismatches.append("Address mismatch between ID and utility bill")
+            if not id_name:
+                warnings.append("Name could not be read from the ID document")
+            if not id_address:
+                warnings.append("Address could not be read from the ID document")
+
+            entity_validation = {
+                "name_match": bool(name_match),
+                "address_match": bool(address_match),
+                "mismatches": mismatches,
+                "warnings": warnings,
+                "document_checks": document_checks,
+            }
+
+            application.extracted_name = id_name
+            application.extracted_dob = entities_id.get("date_of_birth") or (
+                address_info["entities"].get("date_of_birth") if address_info else None
+            )
+            application.extracted_address = id_address
+            application.extracted_id_number = entities_id.get("id_number")
             application.entity_mismatches = entity_validation
+
+            for info in doc_infos:
+                info["document"].extracted_text = {
+                    **(info["document"].extracted_text or {}),
+                    "entities": info["entities"],
+                }
+            for role, check in document_checks.items():
+                target = roles.get(role)
+                if target:
+                    target["document"].extracted_text = {
+                        **(target["document"].extracted_text or {}),
+                        "document_check": check,
+                    }
             await db.commit()
 
             await audit_service.log_action(
                 db,
                 application_id,
                 "ENTITIES_EXTRACTED",
-                {"entities": entities, "validation": entity_validation},
+                {
+                    "id": entities_id,
+                    "address_proof": address_info["entities"] if address_info else None,
+                    "utility_bill": bill_info["entities"] if bill_info else None,
+                    "validation": entity_validation,
+                },
             )
 
             # ---------------- Risk score ----------------
