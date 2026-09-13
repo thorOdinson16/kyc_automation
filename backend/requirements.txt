@@ -1,34 +1,43 @@
-fastapi==0.121.2
-uvicorn==0.24.0
-pydantic==2.11.10
-pydantic-settings==2.4.0
-python-multipart==0.0.20
-python-dotenv==1.0.0
-aiofiles==24.1.0
+# Web framework
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+python-multipart
+python-dotenv
+aiofiles
 
-SQLAlchemy==2.0.43
-asyncpg==0.29.0
-psycopg2-binary==2.9.9
-pgvector==0.4.1
+# Database
+SQLAlchemy>=2.0
+asyncpg
+psycopg2-binary
+pgvector
+alembic
 
-easyocr==1.7.2
-pytesseract==0.3.13
+# AI / ML
+easyocr
+pytesseract
 mediapipe==0.10.21
-transformers==4.57.0
-xgboost==1.1.7
-shap==0.49.1
-torch==2.8.0
-opencv-python==4.8.1.78
-Pillow==10.1.0
-numpy==1.26.3
-scikit-learn==1.7.2
+transformers
+torch>=2.4
+torchvision
+xgboost
+shap
+opencv-python
+Pillow
+numpy<2
+pandas
 
-cryptography==46.0.3
-python-jose==3.3.0
+# FaceNet. facenet-pytorch 2.6.0 declares torch<2.3, which conflicts with
+# transformers (torch>=2.4), so it is intentionally NOT listed here. Install it
+# without touching torch:
+#     pip install --no-deps facenet-pytorch==2.6.0
 
-requests==2.32.5
-python-dateutil==2.8.2
+# Security
+cryptography
+python-jose[cryptography]
 
-pytest==9.0.1
-pytest-asyncio==1.3.0
-pytest-cov==4.1.0
+# Testing
+pytest
+pytest-asyncio
+httpx

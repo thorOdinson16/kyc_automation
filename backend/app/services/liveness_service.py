@@ -1,110 +1,109 @@
-import mediapipe as mp
-import cv2
-import numpy as np
-from typing import Dict
 import asyncio
+from typing import Dict, List, Sequence, Union
+
+import cv2
+import mediapipe as mp
+import numpy as np
+
+LEFT_EYE = [33, 160, 158, 133, 153, 144]
+RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+
 
 class LivenessService:
+    """Mediapipe-based liveness using blink and inter-frame motion cues."""
+
     def __init__(self):
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
             min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+            min_tracking_confidence=0.5,
         )
-        self.blink_threshold = 0.2
-        self.motion_threshold = 0.05
-    
-    async def detect_liveness(self, video_path: str) -> Dict:
-        """Detect liveness using blink and motion detection"""
-        loop = asyncio.get_event_loop()
-        
-        cap = cv2.VideoCapture(video_path)
-        
+        self.ear_threshold = 0.21
+        self.motion_threshold = 0.004
+
+    def _eye_aspect_ratio(self, landmarks, indices) -> float:
+        points = np.array([[landmarks[i].x, landmarks[i].y] for i in indices])
+        vertical = np.linalg.norm(points[1] - points[5]) + np.linalg.norm(
+            points[2] - points[4]
+        )
+        horizontal = np.linalg.norm(points[0] - points[3])
+        return float(vertical / (2 * horizontal + 1e-9))
+
+    def _analyse_sync(self, frame_paths: Sequence[str]) -> Dict:
+        ears: List[float] = []
+        motions: List[float] = []
+        previous_points = None
+        faces_detected = 0
+
+        for path in frame_paths:
+            image = cv2.imread(path)
+            if image is None:
+                continue
+
+            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = self.face_mesh.process(rgb)
+
+            if not results.multi_face_landmarks:
+                previous_points = None
+                continue
+
+            faces_detected += 1
+            landmarks = results.multi_face_landmarks[0].landmark
+
+            ear = (
+                self._eye_aspect_ratio(landmarks, LEFT_EYE)
+                + self._eye_aspect_ratio(landmarks, RIGHT_EYE)
+            ) / 2
+            ears.append(ear)
+
+            points = np.array([[lm.x, lm.y] for lm in landmarks])
+            if previous_points is not None:
+                motions.append(
+                    float(np.mean(np.linalg.norm(points - previous_points, axis=1)))
+                )
+            previous_points = points
+
         blink_count = 0
-        motion_detected = False
-        frames_processed = 0
-        prev_landmarks = None
-        
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Convert to RGB
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Process frame
-            results = self.face_mesh.process(rgb_frame)
-            
-            if results.multi_face_landmarks:
-                landmarks = results.multi_face_landmarks[0]
-                
-                # Detect blinks
-                ear = self._calculate_ear(landmarks)
-                if ear < self.blink_threshold:
-                    blink_count += 1
-                
-                # Detect motion
-                if prev_landmarks is not None:
-                    motion = self._calculate_motion(landmarks, prev_landmarks)
-                    if motion > self.motion_threshold:
-                        motion_detected = True
-                
-                prev_landmarks = landmarks
-            
-            frames_processed += 1
-        
-        cap.release()
-        
-        # Calculate confidence
-        liveness_confidence = self._calculate_confidence(
-            blink_count, motion_detected, frames_processed
+        below_threshold = False
+        for ear in ears:
+            if ear < self.ear_threshold and not below_threshold:
+                blink_count += 1
+                below_threshold = True
+            elif ear >= self.ear_threshold:
+                below_threshold = False
+
+        motion = float(np.mean(motions)) if motions else 0.0
+        frames_processed = len(frame_paths)
+
+        blink_score = min(blink_count / 1.0, 1.0)
+        motion_score = min(motion / (self.motion_threshold * 3), 1.0)
+        face_score = min(faces_detected / max(frames_processed, 1), 1.0)
+
+        confidence = 0.5 * blink_score + 0.3 * motion_score + 0.2 * face_score
+        is_live = faces_detected >= 2 and (
+            blink_count >= 1 or motion > self.motion_threshold
         )
-        
+
         return {
-            'liveness_detected': liveness_confidence > 0.5,
-            'confidence': liveness_confidence,
-            'blink_count': blink_count,
-            'motion_detected': motion_detected,
-            'frames_processed': frames_processed
+            "is_live": bool(is_live),
+            "confidence": float(confidence),
+            "blink_count": int(blink_count),
+            "motion": float(motion),
+            "faces_detected": int(faces_detected),
+            "frames_processed": int(frames_processed),
+            "method": "mediapipe",
         }
-    
-    def _calculate_ear(self, landmarks) -> float:
-        """Calculate Eye Aspect Ratio for blink detection"""
-        # Simplified EAR calculation
-        # Use specific landmark indices for eyes
-        left_eye = [landmarks.landmark[i] for i in [33, 160, 158, 133, 153, 144]]
-        
-        # Calculate vertical distances
-        vertical = np.linalg.norm(
-            np.array([left_eye[1].y, left_eye[1].x]) - 
-            np.array([left_eye[5].y, left_eye[5].x])
-        )
-        
-        # Calculate horizontal distance
-        horizontal = np.linalg.norm(
-            np.array([left_eye[0].y, left_eye[0].x]) - 
-            np.array([left_eye[3].y, left_eye[3].x])
-        )
-        
-        ear = vertical / horizontal if horizontal > 0 else 0
-        return ear
-    
-    def _calculate_motion(self, current, previous) -> float:
-        """Calculate motion between frames"""
-        current_points = np.array([[lm.x, lm.y] for lm in current.landmark])
-        prev_points = np.array([[lm.x, lm.y] for lm in previous.landmark])
-        
-        motion = np.mean(np.linalg.norm(current_points - prev_points, axis=1))
-        return motion
-    
-    def _calculate_confidence(self, blinks: int, motion: bool, frames: int) -> float:
-        """Calculate overall liveness confidence"""
-        blink_score = min(blinks / 3, 1.0) * 0.6  # Expect at least 3 blinks
-        motion_score = 0.4 if motion else 0
-        
-        return blink_score + motion_score
+
+    async def detect_liveness(self, frames: Union[str, Sequence[str]]) -> Dict:
+        if isinstance(frames, str):
+            frame_paths = [frames]
+        else:
+            frame_paths = list(frames)
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._analyse_sync, frame_paths)
+
 
 liveness_service = LivenessService()

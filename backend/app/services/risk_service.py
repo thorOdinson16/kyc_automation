@@ -23,17 +23,25 @@ class RiskService:
         self.high_risk_threshold = 0.7
 
     async def calculate_risk_score(self, features: Dict) -> Dict:
-
         feature_map = {
             "face_match_score": features.get("face_similarity_score", 0.5),
             "liveness_score": features.get("liveness_confidence", 0.5),
             "document_quality_score": features.get("document_quality_score", 0.5),
             "ocr_confidence": features.get("ocr_confidence", 0.5),
-            "entity_mismatch_count": features.get("entity_mismatch_count", 0),
+            "entity_mismatch_count": len(features.get("entity_mismatches", [])),
             "location_anomaly_score": features.get("location_anomaly_score", 0.0),
             "behavior_score": features.get("behavior_score", 0.0),
         }
-
+        
+        # Add location anomaly detection
+        if features.get("ip_country") != features.get("document_country"):
+            feature_map["location_anomaly_score"] = 0.8
+        
+        # Behavior scoring
+        upload_speed = features.get("upload_duration_seconds", 60)
+        if upload_speed < 10:  # Too fast = suspicious
+            feature_map["behavior_score"] = 0.3
+            
         df = pd.DataFrame([feature_map], columns=self.feature_names)
         dm = xgb.DMatrix(df, feature_names=self.feature_names)
 

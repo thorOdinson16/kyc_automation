@@ -6,8 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from app.config import settings
-from app.api.v1 import applications, documents, verification, audit
-import ssl
+from app.api.v1 import applications, documents, verification, audit, auth
 
 app = FastAPI(
     title="AI-Powered KYC System",
@@ -32,7 +31,7 @@ app.include_router(applications.router, prefix=f"{settings.API_V1_PREFIX}/applic
 app.include_router(documents.router, prefix=f"{settings.API_V1_PREFIX}/documents", tags=["Documents"])
 app.include_router(verification.router, prefix=f"{settings.API_V1_PREFIX}/verification", tags=["Verification"])
 app.include_router(audit.router, prefix=f"{settings.API_V1_PREFIX}/audit", tags=["Audit"])
-
+app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["Auth"])
 
 @app.get("/")
 async def root():

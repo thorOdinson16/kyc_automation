@@ -4,7 +4,14 @@ from sqlalchemy.orm import relationship
 import uuid
 from datetime import datetime
 from app.database import Base
+from enum import Enum
+from sqlalchemy import Enum as SQLEnum
 
+class UserRole(str, Enum):
+    APPLICANT = "applicant"
+    REVIEWER = "reviewer"
+    ADMIN = "admin"
+    
 class User(Base):
     __tablename__ = "users"
     
@@ -17,3 +24,6 @@ class User(Base):
     
     # Relationships
     applications = relationship("KYCApplication", back_populates="user")
+
+    password_hash = Column(String(255), nullable=True)
+    role = Column(SQLEnum(UserRole), default=UserRole.APPLICANT)

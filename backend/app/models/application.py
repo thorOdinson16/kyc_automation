@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 import uuid
 from datetime import datetime
@@ -23,6 +23,12 @@ class KYCApplication(Base):
     decision_at = Column(DateTime, nullable=True)
     risk_score_id = Column(UUID(as_uuid=True), nullable=True)
     
+    extracted_name = Column(String(255), nullable=True)
+    extracted_dob = Column(String(50), nullable=True)
+    extracted_address = Column(Text, nullable=True)
+    extracted_id_number = Column(String(100), nullable=True)
+    entity_mismatches = Column(JSONB, nullable=True)
+
     # Relationships
     user = relationship("User", back_populates="applications")
     documents = relationship("Document", back_populates="application")
@@ -30,3 +36,10 @@ class KYCApplication(Base):
     risk_score = relationship("RiskScore", back_populates="application")
     explainability = relationship("Explainability", back_populates="application")
     audit_logs = relationship("AuditLog", back_populates="application")
+
+class DocumentType(str, Enum):
+    ID_FRONT = "id_front"
+    ID_BACK = "id_back"
+    ADDRESS_PROOF = "address_proof"
+    UTILITY_BILL = "utility_bill"
+    SELFIE = "selfie"

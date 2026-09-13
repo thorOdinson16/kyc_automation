@@ -1,74 +1,169 @@
 import os
+
 import pytest
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy import text
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
+
+from app.core.security import security
 from app.database import AsyncSessionLocal
 from app.main import app
+from app.models.user import User, UserRole
+from app.services import (
+    entity_service as entity_module,
+    face_service as face_module,
+    liveness_service as liveness_module,
+    ocr_service as ocr_module,
+)
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+ID_CARD = os.path.join(FIXTURES, "id_card.jpeg")
+SELFIE = os.path.join(FIXTURES, "selfie.jpeg")
+
+
+def _fake_ocr(text="Name: Abhi Sharma\nDOB: 01/01/1995\n123 Main Street, Mumbai"):
+    async def _extract(image_path, use_fallback=True):
+        return {
+            "text": text,
+            "raw_results": [],
+            "confidence": 0.92,
+            "ocr_engine": "easyocr",
+        }
+
+    return _extract
+
+
+async def _fake_face(selfie_path, id_photo_path):
+    import numpy as np
+
+    embedding = np.ones(512, dtype=float)
+    return {
+        "is_match": True,
+        "similarity": 0.91,
+        "selfie_embedding": embedding,
+        "id_embedding": embedding,
+    }
+
+
+async def _fake_liveness(frames):
+    return {
+        "is_live": True,
+        "confidence": 0.88,
+        "blink_count": 1,
+        "motion": 0.02,
+        "faces_detected": 4,
+        "frames_processed": 4,
+        "method": "mediapipe",
+    }
+
+
+async def _fake_entities(text):
+    return {
+        "name": "Abhi Sharma",
+        "date_of_birth": "1995-01-01",
+        "address": "Mumbai",
+        "id_number": "ABCD12345678",
+    }
+
+
+@pytest.fixture(autouse=True)
+def stub_ai_services(monkeypatch):
+    """Stub heavy/download-dependent models so the integration test is fast."""
+    monkeypatch.setattr(ocr_module.ocr_service, "extract_text", _fake_ocr())
+    monkeypatch.setattr(face_module.face_service, "verify_faces", _fake_face)
+    monkeypatch.setattr(liveness_module.liveness_service, "detect_liveness", _fake_liveness)
+    monkeypatch.setattr(entity_module.entity_service, "extract_entities", _fake_entities)
+
+
+async def _upload(client, application_id, document_type, path):
+    with open(path, "rb") as handle:
+        return await client.post(
+            f"/api/v1/documents/{application_id}/upload",
+            params={"document_type": document_type},
+            files={"file": (os.path.basename(path), handle, "image/jpeg")},
+        )
+
 
 @pytest.mark.asyncio
 async def test_full_kyc_flow():
-    application_id = "00000000-0000-0000-0000-000000000123"
-    user_id = "11111111-1111-1111-1111-111111111111"
-
-    # ---- Insert USER first ----
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            text("""
-                INSERT INTO users (user_id, email, created_at)
-                VALUES (:uid, 'test@example.com', NOW())
-            """),
-            {"uid": user_id}
-        )
-        await db.commit()
-
-    # ---- Insert APPLICATION ----
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            text("""
-                INSERT INTO kyc_applications (application_id, user_id, status, submitted_at)
-                VALUES (:aid, :uid, 'PROCESSING', NOW())
-            """),
-            {"aid": application_id, "uid": user_id}
-        )
-        await db.commit()
-
-    # ---- File paths ----
-    id_path = "backend/tests/abhi_id.jpeg"
-    selfie_path = "backend/tests/selfie.jpeg"
-
-    assert os.path.exists(id_path)
-    assert os.path.exists(selfie_path)
-
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/applications/",
+            json={"name": "Test User", "email": "test@example.com", "phone": "1234567890"},
+        )
+        assert response.status_code == 201, response.text
+        application_id = response.json()["application_id"]
 
-        # Upload ID
-        with open(id_path, "rb") as f1:
-            upload_res = await client.post(
-                f"/api/v1/documents/{application_id}/upload",
-                params={"document_type": "id_front"},
-                files={"file": ("abhi_id.jpeg", f1, "image/jpeg")},
+        for document_type in ("id_front", "address_proof", "utility_bill"):
+            response = await _upload(client, application_id, document_type, ID_CARD)
+            assert response.status_code == 200, response.text
+
+        response = await _upload(client, application_id, "selfie", SELFIE)
+        assert response.status_code == 200, response.text
+
+        with open(SELFIE, "rb") as first, open(SELFIE, "rb") as second:
+            response = await client.post(
+                f"/api/v1/documents/{application_id}/upload/liveness",
+                files=[
+                    ("frames", ("frame0.jpg", first, "image/jpeg")),
+                    ("frames", ("frame1.jpg", second, "image/jpeg")),
+                ],
             )
-        assert upload_res.status_code == 200
+        assert response.status_code == 200, response.text
 
-        # Upload selfie
-        with open(selfie_path, "rb") as f2:
-            upload_res2 = await client.post(
-                f"/api/v1/documents/{application_id}/upload",
-                params={"document_type": "selfie"},
-                files={"file": ("selfie.jpeg", f2, "image/jpeg")},
+        response = await client.post(f"/api/v1/verification/{application_id}/process")
+        assert response.status_code == 200, response.text
+
+        response = await client.get(f"/api/v1/verification/{application_id}/results")
+        assert response.status_code == 200, response.text
+        result = response.json()
+
+        assert result["status"] in {"approved", "review_required", "rejected"}
+        assert result["risk_score"] is not None
+        assert result["explainability"] is not None
+        assert result["extracted"]["name"] == "Abhi Sharma"
+
+        response = await client.get(f"/api/v1/audit/{application_id}/trail")
+        assert response.status_code == 200
+        action_types = {entry["action_type"] for entry in response.json()["audit_trail"]}
+        assert {"OCR_EXTRACTED", "FACE_MATCHED", "RISK_CALCULATED"} <= action_types
+
+
+@pytest.mark.asyncio
+async def test_reviewer_rbac():
+    email = "reviewer_test@kyc.ai"
+    password = "reviewpass123"
+
+    async with AsyncSessionLocal() as db:
+        existing = (
+            await db.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if not existing:
+            db.add(
+                User(
+                    name="Test Reviewer",
+                    email=email,
+                    password_hash=security.hash_password(password),
+                    role=UserRole.REVIEWER,
+                )
             )
-        assert upload_res2.status_code == 200
+            await db.commit()
 
-        # Trigger verification
-        verify_res = await client.post(f"/api/v1/verification/{application_id}/process")
-        assert verify_res.status_code == 200
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/applications/")
+        assert response.status_code == 401
 
-        # Fetch results
-        result_res = await client.get(f"/api/v1/verification/{application_id}/results")
-        assert result_res.status_code == 200
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert response.status_code == 200, response.text
+        token = response.json()["access_token"]
 
-        print("\n--- RESULT ---")
-        print(result_res.json())
-        print("--------------")
+        response = await client.get(
+            "/api/v1/applications/",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200

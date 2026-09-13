@@ -1,70 +1,76 @@
-from keras_facenet import FaceNet
-from mtcnn import MTCNN
-import numpy as np
-import cv2
-from PIL import Image
 import asyncio
-from typing import Tuple
 import tempfile
-import os
+from typing import Tuple
+
+import numpy as np
+import torch
+from facenet_pytorch import InceptionResnetV1, MTCNN
+from PIL import Image
 
 
 class FaceService:
+    """One-to-one face verification using FaceNet (InceptionResnetV1) + MTCNN."""
+
     def __init__(self):
-        self.detector = MTCNN()
-        self.facenet = FaceNet()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._detector = None
+        self._model = None
         self.similarity_threshold = 0.6
 
+    @property
+    def detector(self):
+        if self._detector is None:
+            self._detector = MTCNN(keep_all=False, device=self.device)
+        return self._detector
+
+    @property
+    def model(self):
+        if self._model is None:
+            self._model = InceptionResnetV1(pretrained="vggface2").eval().to(self.device)
+        return self._model
+
     async def _ensure_filepath(self, src) -> str:
-        """
-        Accepts:
-        - string file path  -> return as is
-        - file-like object  -> save to temp file and return path
-
-        This fixes pytest + ASGITransport issues.
-        """
         if isinstance(src, str):
-            return src  # already a valid path
+            return src
 
-        # src is a SpooledTemporaryFile or UploadFile.file
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
         tmp.write(src.read())
         tmp.flush()
+        tmp.close()
         return tmp.name
 
-    async def extract_face_embedding(self, image_path) -> np.ndarray:
-        loop = asyncio.get_event_loop()
+    def _embedding_sync(self, image_path: str) -> np.ndarray:
+        image = Image.open(image_path).convert("RGB")
+        face = self.detector(image)
 
-        image_path = await self._ensure_filepath(image_path)
-
-        img = await loop.run_in_executor(None, cv2.imread, image_path)
-        if img is None:
-            raise ValueError(f"Invalid image path: {image_path}")
-
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        detections = self.detector.detect_faces(img_rgb)
-        if len(detections) == 0:
+        if face is None:
             raise ValueError("No face detected")
 
-        x, y, w, h = detections[0]['box']
-        face = img_rgb[y:y + h, x:x + w]
+        face = face.unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            embedding = self.model(face).cpu().numpy()[0]
+        return embedding
 
-        # 🔥 FIX: resize using cv2 (FaceNet needs numpy array)
-        face_np = cv2.resize(face, (160, 160))
+    async def extract_face_embedding(self, image_path) -> np.ndarray:
+        path = await self._ensure_filepath(image_path)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._embedding_sync, path)
 
-        # 🔥 FIX: embeddings() must receive numpy arrays, NOT PIL
-        embedding = await loop.run_in_executor(None, self.facenet.embeddings, [face_np])
-        return embedding[0]
+    async def verify_faces(self, selfie_path, id_photo_path) -> dict:
+        selfie_embedding = await self.extract_face_embedding(selfie_path)
+        id_embedding = await self.extract_face_embedding(id_photo_path)
 
-    async def verify_faces(self, selfie_path, id_photo_path) -> Tuple[bool, float]:
-        emb1 = await self.extract_face_embedding(selfie_path)
-        emb2 = await self.extract_face_embedding(id_photo_path)
+        similarity = float(
+            np.dot(selfie_embedding, id_embedding)
+            / (np.linalg.norm(selfie_embedding) * np.linalg.norm(id_embedding) + 1e-9)
+        )
 
-        similarity = np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
-        is_match = similarity >= self.similarity_threshold
-
-        return is_match, float(similarity)
+        return {
+            "is_match": similarity >= self.similarity_threshold,
+            "similarity": similarity,
+            "selfie_embedding": selfie_embedding,
+            "id_embedding": id_embedding,
+        }
 
 
 face_service = FaceService()

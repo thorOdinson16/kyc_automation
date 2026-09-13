@@ -1,70 +1,65 @@
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-import os
 import base64
+import os
 import tempfile
 from typing import Tuple
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.fernet import Fernet
+
+from app.config import settings
+
+_NONCE_SIZE = 12
+
 
 class EncryptionService:
+    """AES-256-GCM authenticated encryption for PII at rest."""
+
     def __init__(self, encryption_key: str):
-        self.key = base64.urlsafe_b64decode(encryption_key.encode())
+        try:
+            key = base64.urlsafe_b64decode(encryption_key.encode())
+        except Exception as exc:  # pragma: no cover - configuration error
+            raise ValueError("ENCRYPTION_KEY must be a valid base64 value") from exc
+
+        if len(key) != 32:
+            raise ValueError("ENCRYPTION_KEY must decode to 32 bytes (AES-256)")
+
+        self.key = key
+        self._aead = AESGCM(key)
 
     async def encrypt_file(self, file_path: str) -> Tuple[str, str]:
-        """Encrypt file using AES-256 and return encrypted path"""
+        """Encrypt a file with AES-256-GCM.
 
-        with open(file_path, 'rb') as f:
-            data = f.read()
+        Returns ``(encrypted_path, nonce_b64)``. The stored layout is
+        ``nonce || ciphertext || tag``.
+        """
+        with open(file_path, "rb") as handle:
+            data = handle.read()
 
-        iv = os.urandom(16)
-
-        cipher = Cipher(
-            algorithms.AES(self.key),
-            modes.CBC(iv),
-            backend=default_backend()
-        )
-        encryptor = cipher.encryptor()
-
-        padded_data = self._pad_data(data)
-        encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
+        nonce = os.urandom(_NONCE_SIZE)
+        ciphertext = self._aead.encrypt(nonce, data, None)
 
         encrypted_path = file_path + ".enc"
-        with open(encrypted_path, "wb") as f:
-            f.write(iv + encrypted_data)
+        with open(encrypted_path, "wb") as handle:
+            handle.write(nonce + ciphertext)
 
         os.remove(file_path)
 
-        return encrypted_path, base64.b64encode(iv).decode()
+        return encrypted_path, base64.b64encode(nonce).decode()
 
     async def decrypt_file(self, encrypted_path: str) -> str:
-        """
-        DECRYPT + RETURN A REAL FILE PATH (string).
-        This is required for cv2.imread, OCR, and tests.
-        """
+        """Decrypt a file and return the path to a temporary plaintext copy."""
+        with open(encrypted_path, "rb") as handle:
+            blob = handle.read()
 
-        with open(encrypted_path, "rb") as f:
-            data = f.read()
+        nonce, ciphertext = blob[:_NONCE_SIZE], blob[_NONCE_SIZE:]
+        plaintext = self._aead.decrypt(nonce, ciphertext, None)
 
-        iv = data[:16]
-        encrypted_data = data[16:]
-
-        cipher = Cipher(
-            algorithms.AES(self.key),
-            modes.CBC(iv),
-            backend=default_backend()
-        )
-        decryptor = cipher.decryptor()
-
-        decrypted = decryptor.update(encrypted_data) + decryptor.finalize()
-        decrypted = self._unpad_data(decrypted)
-
-        # Write to temp image file
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        tmp.write(decrypted)
+        tmp.write(plaintext)
         tmp.flush()
+        tmp.close()
 
-        return tmp.name  # REAL PATH (string)
+        return tmp.name
 
     def encrypt_text(self, text: str) -> str:
         fernet = Fernet(base64.urlsafe_b64encode(self.key))
@@ -74,14 +69,5 @@ class EncryptionService:
         fernet = Fernet(base64.urlsafe_b64encode(self.key))
         return fernet.decrypt(encrypted_text.encode()).decode()
 
-    def _pad_data(self, data: bytes) -> bytes:
-        padding_length = 16 - (len(data) % 16)
-        return data + bytes([padding_length] * padding_length)
 
-    def _unpad_data(self, data: bytes) -> bytes:
-        padding_length = data[-1]
-        return data[:-padding_length]
-
-
-from app.config import settings
 encryption_service = EncryptionService(settings.ENCRYPTION_KEY)

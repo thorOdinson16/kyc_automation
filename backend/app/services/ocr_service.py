@@ -1,68 +1,85 @@
+import asyncio
+from typing import Dict
+
 import easyocr
+import numpy as np
 import pytesseract
 from PIL import Image
-import numpy as np
-from typing import Dict
-import asyncio
+
 
 class OCRService:
+    """Dual OCR: EasyOCR primary, Tesseract fallback for low confidence."""
+
     def __init__(self):
-        self.reader = easyocr.Reader(['en'])
+        self._reader = None
         self.confidence_threshold = 0.5
-    
+
+    @property
+    def reader(self):
+        # Loaded lazily so app startup does not download/initialise models.
+        if self._reader is None:
+            self._reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        return self._reader
+
     async def extract_text(self, image_path: str, use_fallback: bool = True) -> Dict:
-        """Extract text using EasyOCR with Tesseract fallback"""
-        
-        # Primary: EasyOCR
         result = await self._easyocr_extract(image_path)
-        
+
         if result["confidence"] < self.confidence_threshold and use_fallback:
-            # Fallback: Tesseract
-            result = await self._tesseract_extract(image_path)
-            result["ocr_engine"] = "tesseract"
-        else:
-            result["ocr_engine"] = "easyocr"
-        
+            fallback = await self._tesseract_extract(image_path)
+            if fallback is not None:
+                fallback["ocr_engine"] = "tesseract"
+                return fallback
+
+        result["ocr_engine"] = "easyocr"
         return result
-    
+
     async def _easyocr_extract(self, image_path: str) -> Dict:
-        """EasyOCR extraction (JSON-safe)"""
         loop = asyncio.get_event_loop()
         results = await loop.run_in_executor(None, self.reader.readtext, image_path)
-        
+
         text_blocks = []
         confidences = []
-
-        # Convert raw results into JSON-serializable format
         clean_results = []
-        for (bbox, text, conf) in results:
+
+        for bbox, text, conf in results:
             text_blocks.append(text)
             confidences.append(float(conf))
+            clean_results.append(
+                {
+                    "bbox": [[float(point[0]), float(point[1])] for point in bbox],
+                    "text": text,
+                    "confidence": float(conf),
+                }
+            )
 
-            clean_results.append({
-                "bbox": [[float(p[0]), float(p[1])] for p in bbox],
-                "text": text,
-                "confidence": float(conf)
-            })
+        avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-        
         return {
             "text": " ".join(text_blocks),
-            "raw_results": clean_results,   # SAFE FOR JSONB
-            "confidence": avg_confidence
+            "raw_results": clean_results,
+            "confidence": avg_confidence,
         }
-    
-    async def _tesseract_extract(self, image_path: str) -> Dict:
-        """Tesseract OCR extraction"""
+
+    async def _tesseract_extract(self, image_path: str):
+        """Tesseract fallback. Returns None when Tesseract is unavailable."""
         loop = asyncio.get_event_loop()
-        image = await loop.run_in_executor(None, Image.open, image_path)
-        text = await loop.run_in_executor(None, pytesseract.image_to_string, image)
+
+        def _run():
+            try:
+                image = Image.open(image_path)
+                return pytesseract.image_to_string(image)
+            except Exception:
+                return None
+
+        text = await loop.run_in_executor(None, _run)
+        if text is None:
+            return None
 
         return {
             "text": text.strip(),
-            "raw_results": {"text": text.strip()},  # SAFE
-            "confidence": 0.7
+            "raw_results": {"text": text.strip()},
+            "confidence": 0.7,
         }
+
 
 ocr_service = OCRService()

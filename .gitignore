@@ -15,10 +15,8 @@ __pycache__/
 ###############################
 backend/.pytest_cache/
 backend/__pycache__/
-backend/uvicorn/
 backend/uploads/
 backend/encrypted/
-backend/documents/
 
 # Python virtual environment
 backend/venv/
@@ -62,6 +60,7 @@ Thumbs.db
 
 commands.txt
 setup.bat
-documents/
 .pytest_cache/
 *.jpeg
+!backend/tests/fixtures/*.jpeg
+!backend/tests/fixtures/*.jpg

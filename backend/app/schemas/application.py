@@ -1,19 +1,28 @@
-from pydantic import BaseModel, EmailStr
-from uuid import UUID
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, EmailStr
+
+from app.models.application import ApplicationStatus
+
 
 class ApplicationCreate(BaseModel):
-    name: Optional[str]
-    email: Optional[EmailStr]
-    phone: Optional[str]
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+
 
 class ApplicationResponse(BaseModel):
     application_id: UUID
     user_id: UUID
-    status: str
+    status: ApplicationStatus
     submitted_at: datetime
-    decision_at: Optional[datetime]
+    decision_at: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
+
+
+class DecisionOverride(BaseModel):
+    decision: str
+    reason: str
