@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     SSL_CERTFILE: Optional[str] = None
     SSL_KEYFILE: Optional[str] = None
 
+    # Observability
+    LOG_JSON: bool = True
+
+    # Login rate limiting (Redis-backed, in-memory fallback when unreachable)
+    REDIS_URL: str = "redis://localhost:6379/0"
+    RATE_LIMIT_ENABLED: bool = True
+    LOGIN_RATE_LIMIT: int = 5
+    LOGIN_RATE_WINDOW_SECONDS: int = 60
+
     DEBUG: bool = False
 
     @field_validator(

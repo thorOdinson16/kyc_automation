@@ -9,6 +9,7 @@ from app.database import AsyncSessionLocal
 from app.main import app
 from app.models.user import User, UserRole
 from importlib import import_module
+from tests.helpers import auth_headers, create_application
 
 ocr_module = import_module("app.services.ocr_service")
 face_module = import_module("app.services.face_service")
@@ -74,12 +75,13 @@ def stub_ai_services(monkeypatch):
     monkeypatch.setattr(entity_module.entity_service, "extract_entities", _fake_entities)
 
 
-async def _upload(client, application_id, document_type, path):
+async def _upload(client, application_id, document_type, path, token):
     with open(path, "rb") as handle:
         return await client.post(
             f"/api/v1/documents/{application_id}/upload",
             params={"document_type": document_type},
             files={"file": (os.path.basename(path), handle, "image/jpeg")},
+            headers=auth_headers(token),
         )
 
 
@@ -88,18 +90,17 @@ async def test_full_kyc_flow():
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/api/v1/applications/",
-            json={"name": "Test User", "email": "test@example.com", "phone": "1234567890"},
+        application_id, token = await create_application(
+            client, "Test User", email="test@example.com", phone="1234567890"
         )
-        assert response.status_code == 201, response.text
-        application_id = response.json()["application_id"]
 
         for document_type in ("id_front", "address_proof", "utility_bill"):
-            response = await _upload(client, application_id, document_type, ID_CARD)
+            response = await _upload(
+                client, application_id, document_type, ID_CARD, token
+            )
             assert response.status_code == 200, response.text
 
-        response = await _upload(client, application_id, "selfie", SELFIE)
+        response = await _upload(client, application_id, "selfie", SELFIE, token)
         assert response.status_code == 200, response.text
 
         with open(SELFIE, "rb") as first, open(SELFIE, "rb") as second:
@@ -109,6 +110,7 @@ async def test_full_kyc_flow():
                     ("frames", ("frame0.jpg", first, "image/jpeg")),
                     ("frames", ("frame1.jpg", second, "image/jpeg")),
                 ],
+                headers=auth_headers(token),
             )
         assert response.status_code == 200, response.text
 
@@ -174,16 +176,15 @@ async def test_missing_liveness_routes_to_review():
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/api/v1/applications/",
-            json={"name": "No Liveness", "email": "noliveness@example.com"},
+        application_id, token = await create_application(
+            client, "No Liveness", email="noliveness@example.com"
         )
-        assert response.status_code == 201, response.text
-        application_id = response.json()["application_id"]
 
         for document_type in ("id_front", "address_proof", "utility_bill"):
-            assert (await _upload(client, application_id, document_type, ID_CARD)).status_code == 200
-        assert (await _upload(client, application_id, "selfie", SELFIE)).status_code == 200
+            assert (
+                await _upload(client, application_id, document_type, ID_CARD, token)
+            ).status_code == 200
+        assert (await _upload(client, application_id, "selfie", SELFIE, token)).status_code == 200
 
         response = await client.post(f"/api/v1/verification/{application_id}/process")
         assert response.status_code == 200

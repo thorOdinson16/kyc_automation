@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { API_ORIGIN, kycAPI } from '../services/api.js';
+import { kycAPI } from '../services/api.js';
+import DocumentPreview from './DocumentPreview.jsx';
 import toast from 'react-hot-toast';
 
 export default function Results() {
@@ -126,22 +127,7 @@ export default function Results() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {documents.map((doc) => (
                 <div key={doc.document_id} className="border border-gray-700 rounded p-2">
-                  {doc.mime_type === 'application/pdf' ? (
-                    <a
-                      href={`${API_ORIGIN}${doc.view_url}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-center h-40 bg-black/30 rounded text-sm text-purple-300"
-                    >
-                      PDF document - open
-                    </a>
-                  ) : (
-                    <img
-                      src={`${API_ORIGIN}${doc.view_url}`}
-                      alt={doc.document_type}
-                      className="w-full rounded"
-                    />
-                  )}
+                  <DocumentPreview doc={doc} />
                   <p className="text-xs mt-2 text-center">{doc.document_type}</p>
                 </div>
               ))}
@@ -154,6 +140,7 @@ export default function Results() {
             className="btn-primary flex-1"
             onClick={() => {
               localStorage.removeItem('applicationId');
+              localStorage.removeItem('token');
               nav('/');
             }}
           >

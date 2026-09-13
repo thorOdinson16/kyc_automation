@@ -38,6 +38,10 @@ PyMuPDF
 # Security
 cryptography
 python-jose[cryptography]
+redis
+
+# Observability
+python-json-logger
 
 # Testing
 pytest

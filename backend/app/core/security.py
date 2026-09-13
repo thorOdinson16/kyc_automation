@@ -55,6 +55,21 @@ class SecurityService:
         to_encode.update({"exp": expire})
         return jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
 
+    def create_application_token(self, user_id, application_id) -> str:
+        """Short-lived token bound to a single KYC application.
+
+        Returned when an applicant creates an application. It identifies the
+        owner (``sub``) and the application it may access (``app_id``) without
+        granting any staff privileges.
+        """
+        return self.create_access_token(
+            {
+                "sub": str(user_id),
+                "role": "applicant",
+                "app_id": str(application_id),
+            }
+        )
+
     def decode_token(self, token: str):
         try:
             return jwt.decode(token, self.secret_key, algorithms=[self.algorithm])

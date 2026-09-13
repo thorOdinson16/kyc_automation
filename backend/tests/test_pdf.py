@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.services.ocr_service import ocr_service
+from tests.helpers import auth_headers, create_application
 
 
 def _make_text_pdf(path: str) -> None:
@@ -43,11 +44,7 @@ async def test_upload_accepts_pdf_and_rejects_unsupported():
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/api/v1/applications/", json={"name": "PDF User"}
-        )
-        assert response.status_code == 201, response.text
-        application_id = response.json()["application_id"]
+        application_id, token = await create_application(client, "PDF User")
 
         with tempfile.TemporaryDirectory() as tmp:
             pdf_path = os.path.join(tmp, "doc.pdf")
@@ -57,6 +54,7 @@ async def test_upload_accepts_pdf_and_rejects_unsupported():
                     f"/api/v1/documents/{application_id}/upload",
                     params={"document_type": "id_front"},
                     files={"file": ("doc.pdf", handle, "application/pdf")},
+                    headers=auth_headers(token),
                 )
         assert response.status_code == 200, response.text
         assert response.json()["mime_type"] == "application/pdf"
@@ -65,5 +63,6 @@ async def test_upload_accepts_pdf_and_rejects_unsupported():
             f"/api/v1/documents/{application_id}/upload",
             params={"document_type": "utility_bill"},
             files={"file": ("notes.txt", b"hello world", "text/plain")},
+            headers=auth_headers(token),
         )
         assert response.status_code == 415

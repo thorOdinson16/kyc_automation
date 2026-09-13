@@ -23,6 +23,11 @@ class ApplicationResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ApplicationCreatedResponse(ApplicationResponse):
+    access_token: str
+    token_type: str = "bearer"
+
+
 class DecisionOverride(BaseModel):
     decision: str
     reason: str

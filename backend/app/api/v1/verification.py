@@ -6,7 +6,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.pipeline import process_kyc_pipeline
+from app.core.pipeline import (
+    get_stage_timings,
+    has_completed_pipeline,
+    process_kyc_pipeline,
+)
+from app.core.pipeline_lock import is_pipeline_locked
 from app.database import get_db
 from app.models.application import KYCApplication
 from app.models.audit_log import AuditLog
@@ -130,18 +135,35 @@ async def process_verification(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger the KYC verification pipeline."""
+    """Trigger the KYC verification pipeline.
+
+    Idempotent: a completed application is returned as-is and a run already in
+    flight is rejected with 409 rather than starting a duplicate.
+    """
     if not await db.get(KYCApplication, application_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Application not found",
         )
 
-    if RUN_SYNC:
-        await process_kyc_pipeline(application_id)
+    if await has_completed_pipeline(db, application_id):
         return {
             "application_id": application_id,
             "status": "completed",
+            "message": "Verification already completed",
+        }
+
+    if await is_pipeline_locked(application_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Verification is already in progress for this application",
+        )
+
+    if RUN_SYNC:
+        result = await process_kyc_pipeline(application_id)
+        return {
+            "application_id": application_id,
+            "status": result.get("status", "completed"),
             "message": "Pipeline executed synchronously (test mode)",
         }
 
@@ -199,6 +221,7 @@ async def get_verification_results(
         },
         "entity_mismatches": application.entity_mismatches,
         "decision_at": application.decision_at,
+        "stage_timings": await get_stage_timings(db, application_id),
     }
 
 
@@ -233,6 +256,8 @@ async def get_verification_progress(
             0.0, (datetime.utcnow() - application.submitted_at).total_seconds()
         )
 
+    stage_timings = await get_stage_timings(db, application_id)
+
     return {
         "application_id": str(application_id),
         "stage": stage,
@@ -240,4 +265,6 @@ async def get_verification_progress(
         "action": action,
         "status": application.status.value,
         "elapsed_seconds": round(elapsed, 1),
+        "stage_timings": stage_timings,
+        "total_stage_ms": round(sum(stage_timings.values()), 1),
     }

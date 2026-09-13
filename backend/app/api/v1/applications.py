@@ -7,11 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import require_role
+from app.core.security import security
 from app.database import get_db
 from app.models.application import ApplicationStatus, KYCApplication
 from app.models.user import User
 from app.schemas.application import (
     ApplicationCreate,
+    ApplicationCreatedResponse,
     ApplicationResponse,
     DecisionOverride,
 )
@@ -20,12 +22,20 @@ from app.services.audit_service import audit_service
 router = APIRouter()
 
 
-@router.post("/", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=ApplicationCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_application(
     application_data: ApplicationCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new KYC application (open to applicants)."""
+    """Create a new KYC application (open to applicants).
+
+    Returns a token bound to this application; the applicant uses it to upload
+    documents and read their own results. Staff use their role token instead.
+    """
     user = User(
         name=application_data.name,
         email=str(application_data.email) if application_data.email else None,
@@ -50,7 +60,16 @@ async def create_application(
     await db.commit()
     await db.refresh(application)
 
-    return application
+    return {
+        "application_id": application.application_id,
+        "user_id": application.user_id,
+        "status": application.status,
+        "submitted_at": application.submitted_at,
+        "decision_at": application.decision_at,
+        "access_token": security.create_application_token(
+            user.user_id, application.application_id
+        ),
+    }
 
 
 @router.get("/", response_model=List[ApplicationResponse])

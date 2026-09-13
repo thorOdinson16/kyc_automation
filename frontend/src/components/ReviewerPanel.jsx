@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { API_ORIGIN, kycAPI } from '../services/api.js';
+import { kycAPI } from '../services/api.js';
+import DocumentPreview from './DocumentPreview.jsx';
 
 export default function ReviewerPanel() {
   const nav = useNavigate();
@@ -109,22 +110,7 @@ export default function ReviewerPanel() {
                 <div className="grid grid-cols-4 gap-4">
                   {documents.map((doc) => (
                     <div key={doc.document_id}>
-                      {doc.mime_type === 'application/pdf' ? (
-                        <a
-                          href={`${API_ORIGIN}${doc.view_url}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-center h-40 bg-black/30 rounded border border-gray-700 text-xs text-purple-300"
-                        >
-                          PDF - open
-                        </a>
-                      ) : (
-                        <img
-                          src={`${API_ORIGIN}${doc.view_url}`}
-                          alt={doc.document_type}
-                          className="w-full rounded border border-gray-700"
-                        />
-                      )}
+                      <DocumentPreview doc={doc} className="border border-gray-700" />
                       <p className="text-xs mt-1 text-center">{doc.document_type}</p>
                     </div>
                   ))}

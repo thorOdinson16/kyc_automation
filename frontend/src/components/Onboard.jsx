@@ -26,6 +26,9 @@ export default function Onboard() {
       });
 
       localStorage.setItem('applicationId', application.application_id);
+      if (application.access_token) {
+        localStorage.setItem('token', application.access_token);
+      }
       toast.success('Application created. Let us verify your documents.');
       nav('/upload');
     } catch (err) {

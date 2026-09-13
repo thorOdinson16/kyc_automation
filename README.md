@@ -48,7 +48,12 @@ keeps a tamper-evident audit trail — in seconds.
   routing.
 - **Explainability** — SHAP (TreeSHAP) feature contributions for every decision.
 - **Immutable audit trail** — append-only `audit_logs` enforced by a PostgreSQL trigger.
-- **RBAC** — JWT auth with applicant / reviewer / admin roles.
+- **RBAC** — JWT auth with applicant / reviewer / admin roles, **application-scoped
+  tokens** for applicants, and IDOR-safe document access.
+- **Hardened auth** — Redis-backed login rate limiting (IP and IP+email).
+- **Idempotent, resumable pipeline** — one run per application via a Postgres
+  advisory lock; completed stages are recorded in the audit log and skipped on retry.
+- **Observability** — structured JSON logs and per-stage timings from the audit trail.
 - **Live progress** — the Processing screen shows the real pipeline stage and elapsed time.
 
 ## Architecture
@@ -116,6 +121,32 @@ Each upload is checked against its slot **by content**, not just by format:
   downloads are served as attachments with `X-Content-Type-Options: nosniff`.
 - **PII handling** — secrets come from `.env`; only a 32-byte base64 `ENCRYPTION_KEY` is used.
 - **RBAC** — reviewer/admin actions (application list, decision override) require a JWT role.
+
+### Threat model & security considerations
+
+The controls above are deliberate responses to specific threats:
+
+| Threat | Defense |
+| --- | --- |
+| **MIME spoofing** — uploading an executable/HTML payload labelled `image/jpeg` | The declared content type is ignored when magic bytes are present (`_detect_mime` in `documents.py`); files are then checked against an allowlist and rejected with 415. |
+| **Malicious PDF** — embedded JavaScript, launch actions, embedded files, PDF bombs | Uploads are validated (reject encrypted/corrupt/empty/over-page-count) and sanitized (`pdf_service.validate_and_sanitize`) before storage; size is capped by `MAX_UPLOAD_SIZE`. |
+| **XSS via downloaded documents** | Downloads use `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, and the frontend renders previews from authenticated blobs. |
+| **Timing attacks on password verification** | PBKDF2-HMAC-SHA256 (200k iterations) with a constant-time `hmac.compare_digest` comparison. |
+| **Credential stuffing / online password guessing** | Login is rate-limited by IP and IP+email (`app/core/rate_limit.py`), Redis-backed with a loud fail-open fallback. Returns 429 + `Retry-After`. |
+| **IDOR** — reading or modifying another applicant's documents | Every document route resolves the owning `application_id` and allows only the application token holder or a reviewer/admin. Checks are tied to the application, not the bare document id. |
+| **Token theft / privilege escalation** | Applicant tokens are scoped to a single `app_id` and carry no staff role; staff routes require an explicit role claim. |
+| **PII exposure at rest / in transit** | AES-256-GCM authenticated encryption for stored files; optional TLS 1.3 (`python run.py --tls`). |
+| **Audit tampering** | `audit_logs` is append-only enforced by a database trigger; pipeline resume state is derived from it, so "what happened" cannot be silently rewritten. |
+| **Duplicate / replayed pipeline triggers** | A Postgres advisory lock (`app/core/pipeline_lock.py`) admits one run per application; completed runs are a no-op and stage outputs are idempotent. |
+| **Cache outage taking down auth** | The rate limiter fails **open** (availability) but logs at ERROR so the degraded state is visible. |
+
+**Accepted residual risks / non-goals**
+
+- The application token is stored in `localStorage` (XSS-reachable) and can be
+  passed as a `?token=` query parameter for browser-initiated loads; tokens in
+  URLs may leak via logs/caches/`Referer`. Prefer the `Authorization` header.
+- The rate limiter fails open if Redis is unavailable (logged loudly).
+- No MFA, device binding, or PII redaction beyond "never log OCR text/entities".
 
 ## Prerequisites
 
@@ -244,7 +275,9 @@ venv\Scripts\python -m pytest -s
 ```
 
 The suite covers the full pipeline (with AI models stubbed for speed), document verification
-classifiers, PDF handling/validation, liveness blink logic, RBAC and encryption.
+classifiers, PDF handling/validation, liveness blink logic, RBAC and encryption. The
+per-application pipeline lock is stress-tested under repeated concurrent triggers
+(`backend/tests/test_pipeline_lock_stress.py`).
 
 ```bash
 cd frontend
@@ -253,21 +286,28 @@ npm run build
 
 ## API reference
 
-Base path: `/api/v1`. `Auth` = required role.
+Base path: `/api/v1`. `Auth` legend:
+
+- `—` public.
+- `reviewer/admin` — staff JWT with that role (`Authorization: Bearer <token>`).
+- `owner/staff` — either the applicant's **application token** (returned by
+  `POST /applications/`, bound to that application) or a reviewer/admin JWT. Every
+  document route is tied to its owning `application_id`; a token for one
+  application cannot read or mutate another's documents.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| POST | `/auth/login` | — | Obtain a JWT (`email`, `password`) |
-| POST | `/applications/` | — | Create a KYC application |
+| POST | `/auth/login` | — | Obtain a JWT (`email`, `password`); rate-limited |
+| POST | `/applications/` | — | Create a KYC application; returns an **application token** |
 | GET | `/applications/` | reviewer/admin | List applications (`status_filter`) |
 | GET | `/applications/{id}` | — | Get an application |
 | GET | `/applications/{id}/status` | — | Poll status |
 | POST | `/applications/{id}/override` | reviewer/admin | Override the decision |
-| POST | `/documents/{id}/upload` | — | Upload a document (image/PDF) |
-| POST | `/documents/{id}/upload/liveness` | — | Upload liveness frames (images) |
-| GET | `/documents/{id}/view` | — | Download a stored document |
-| PATCH | `/documents/{id}` | — | Reclassify a document's slot |
-| GET | `/documents/application/{id}/list` | — | List an application's documents |
+| POST | `/documents/{id}/upload` | owner/staff | Upload a document (image/PDF) |
+| POST | `/documents/{id}/upload/liveness` | owner/staff | Upload liveness frames (images) |
+| GET | `/documents/{id}/view` | owner/staff | Download a stored document |
+| PATCH | `/documents/{id}` | owner/staff | Reclassify a document's slot |
+| GET | `/documents/application/{id}/list` | owner/staff | List an application's documents |
 | POST | `/verification/{id}/precheck` | — | Classify uploads & suggest routing |
 | POST | `/verification/{id}/process` | — | Run the KYC pipeline |
 | GET | `/verification/{id}/progress` | — | Current stage / status / elapsed |

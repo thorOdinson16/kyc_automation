@@ -31,10 +31,28 @@ PDFs are validated on upload (reject encrypted, corrupt, empty or over-page
 files) and sanitized (JavaScript, launch actions and embedded files stripped)
 before storage; `/view` serves them as attachments with `nosniff`.
 
+## Security
+
+- `POST /applications/` returns an **application token** bound to that
+  application. Document routes (`upload`, `upload/liveness`, `view`, `PATCH`,
+  `list`) accept either that scoped token or a reviewer/admin JWT, and always
+  verify the token against the owning `application_id` (no bare-document IDOR).
+- `/auth/login` is rate-limited by IP and IP+email (Redis, 429 + `Retry-After`).
+- Passwords use PBKDF2-HMAC-SHA256 (200k) with a constant-time comparison.
+- Files are AES-256-GCM encrypted at rest; the audit log is append-only.
+- The pipeline is guarded by a per-application Postgres advisory lock and is
+  resumable: completed stages are recorded in the audit log and skipped on retry.
+- Structured JSON request/stage logs are emitted (`LOG_JSON`, stage timings in
+  `/verification/{id}/progress` and `/results`). Never log OCR text or entities.
+
+See the root `README.md` for the full threat model.
+
 ## Requirements
 
 - Python 3.10+
 - PostgreSQL 14+ with the `pgvector` extension
+- Redis (optional; powers cross-worker login rate limiting — the limiter
+  degrades to an in-process window with a loud ERROR log if Redis is down)
 - Tesseract (used as the OCR fallback). On Windows: `scoop install tesseract`
   (or the UB Mannheim installer), plus the `eng.traineddata` language file.
   The path can be forced with `TESSERACT_CMD` in `.env`.
@@ -136,7 +154,8 @@ Seeded accounts: `reviewer@kyc.ai / review123`, `admin@kyc.ai / admin123`,
 
 Pytest uses the `.env.test` database and runs the KYC pipeline synchronously
 (`RUN_SYNC`). The AI models are stubbed for speed; real services were verified
-separately.
+separately. The per-application pipeline lock is stress-tested under repeated
+concurrent triggers in `tests/test_pipeline_lock_stress.py`.
 
 ```bash
 set PYTEST=1
@@ -147,12 +166,18 @@ venv\Scripts\python -m pytest -s
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| POST | `/api/v1/applications/` | - | Create application |
+| POST | `/api/v1/applications/` | - | Create application (returns app token) |
 | GET | `/api/v1/applications/` | reviewer/admin | List applications |
 | POST | `/api/v1/applications/{id}/override` | reviewer/admin | Override decision |
-| POST | `/api/v1/documents/{id}/upload` | - | Upload a document |
-| POST | `/api/v1/documents/{id}/upload/liveness` | - | Upload liveness frames |
-| POST | `/api/v1/verification/{id}/process` | - | Run the pipeline |
+| POST | `/api/v1/documents/{id}/upload` | owner/staff | Upload a document |
+| POST | `/api/v1/documents/{id}/upload/liveness` | owner/staff | Upload liveness frames |
+| GET | `/api/v1/documents/{id}/view` | owner/staff | Download a document |
+| PATCH | `/api/v1/documents/{id}` | owner/staff | Reclassify a document |
+| GET | `/api/v1/documents/application/{id}/list` | owner/staff | List documents |
+| POST | `/api/v1/verification/{id}/process` | - | Run/resume the pipeline |
 | GET | `/api/v1/verification/{id}/results` | - | Fetch results |
 | GET | `/api/v1/audit/{id}/trail` | - | Fetch audit trail |
-| POST | `/api/v1/auth/login` | - | Obtain a JWT |
+| POST | `/api/v1/auth/login` | - | Obtain a JWT (rate-limited) |
+
+`owner/staff` = the applicant's application token for this application, or a
+reviewer/admin JWT.

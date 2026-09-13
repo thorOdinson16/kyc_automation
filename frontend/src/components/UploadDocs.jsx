@@ -384,6 +384,7 @@ export default function UploadDocs() {
             onClick={() => {
               if (confirm('Are you sure you want to cancel? All progress will be lost.')) {
                 localStorage.removeItem('applicationId');
+                localStorage.removeItem('token');
                 navigate('/');
               }
             }}

@@ -5,6 +5,7 @@ from app.main import app
 from app.services import document_verification_service as dv
 from app.services import verhoeff
 from app.services.entity_service import name_in_text
+from tests.helpers import auth_headers, create_application
 
 AADHAAR_TEXT = (
     "Government of India\n"
@@ -114,14 +115,13 @@ def test_resolve_roles_misplaced_id():
 async def test_reclassify_endpoint():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/api/v1/applications/", json={"name": "Move User"})
-        assert response.status_code == 201, response.text
-        application_id = response.json()["application_id"]
+        application_id, token = await create_application(client, "Move User")
 
         response = await client.post(
             f"/api/v1/documents/{application_id}/upload",
             params={"document_type": "utility_bill"},
             files={"file": ("x.jpg", b"not-a-real-jpeg", "image/jpeg")},
+            headers=auth_headers(token),
         )
         assert response.status_code == 200, response.text
         document_id = response.json()["document_id"]
@@ -129,11 +129,15 @@ async def test_reclassify_endpoint():
         response = await client.patch(
             f"/api/v1/documents/{document_id}",
             json={"document_type": "id_front"},
+            headers=auth_headers(token),
         )
         assert response.status_code == 200, response.text
         assert response.json()["document_type"] == "id_front"
 
-        response = await client.get(f"/api/v1/documents/application/{application_id}/list")
+        response = await client.get(
+            f"/api/v1/documents/application/{application_id}/list",
+            headers=auth_headers(token),
+        )
         types = {doc["document_type"] for doc in response.json()["documents"]}
         assert "id_front" in types and "utility_bill" not in types
 
@@ -142,12 +146,12 @@ async def test_reclassify_endpoint():
 async def test_upload_rejects_bad_pdf_and_oversize_pages():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/api/v1/applications/", json={"name": "PDF Bad"})
-        application_id = response.json()["application_id"]
+        application_id, token = await create_application(client, "PDF Bad")
 
         response = await client.post(
             f"/api/v1/documents/{application_id}/upload",
             params={"document_type": "id_front"},
             files={"file": ("bad.pdf", b"%PDF-1.7 not really a pdf", "application/pdf")},
+            headers=auth_headers(token),
         )
         assert response.status_code == 422

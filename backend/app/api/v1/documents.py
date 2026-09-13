@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_application_access, require_document_access
 from app.config import settings
 from app.database import get_db
-from app.models.application import KYCApplication
 from app.models.document import Document
 from app.schemas.document import DocumentReclassify
 from app.services.audit_service import audit_service
@@ -111,24 +111,15 @@ async def _persist_upload(
     )
 
 
-async def _require_application(db: AsyncSession, application_id: UUID) -> None:
-    if not await db.get(KYCApplication, application_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="KYC application does not exist",
-        )
-
-
 @router.post("/{application_id}/upload")
 async def upload_document(
     application_id: UUID,
     document_type: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _access: dict = Depends(require_application_access),
 ):
     """Upload and encrypt a single document (image or PDF)."""
-    await _require_application(db, application_id)
-
     document = await _persist_upload(
         application_id, document_type, file, ALLOWED_DOCUMENT_MIME
     )
@@ -162,10 +153,9 @@ async def upload_liveness_frames(
     application_id: UUID,
     frames: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
+    _access: dict = Depends(require_application_access),
 ):
     """Upload a short selfie frame sequence used for liveness detection."""
-    await _require_application(db, application_id)
-
     if len(frames) < 2:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -198,6 +188,7 @@ async def upload_liveness_frames(
 async def view_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _access: dict = Depends(require_document_access),
 ):
     """Decrypt and return a document for viewing."""
     from fastapi.responses import FileResponse
@@ -225,6 +216,7 @@ async def reclassify_document(
     document_id: UUID,
     payload: DocumentReclassify,
     db: AsyncSession = Depends(get_db),
+    _access: dict = Depends(require_document_access),
 ):
     """Move a document to a different slot (e.g. after a pre-check)."""
     document = await db.get(Document, document_id)
@@ -262,6 +254,7 @@ async def reclassify_document(
 async def list_documents(
     application_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _access: dict = Depends(require_application_access),
 ):
     """List all documents for an application."""
     documents = (
