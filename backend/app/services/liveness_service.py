@@ -5,6 +5,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
+from app.config import settings
+
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
 
@@ -20,8 +22,8 @@ class LivenessService:
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
         )
-        self.ear_threshold = 0.21
-        self.motion_threshold = 0.004
+        self.ear_threshold = settings.LIVENESS_EAR_THRESHOLD
+        self.motion_threshold = settings.LIVENESS_MOTION_THRESHOLD
 
     def _eye_aspect_ratio(self, landmarks, indices) -> float:
         points = np.array([[landmarks[i].x, landmarks[i].y] for i in indices])
@@ -30,6 +32,28 @@ class LivenessService:
         )
         horizontal = np.linalg.norm(points[0] - points[3])
         return float(vertical / (2 * horizontal + 1e-9))
+
+    def _count_blinks(self, ears: List[float]) -> int:
+        """Count blinks using a baseline-relative drop in eye aspect ratio.
+
+        A fixed threshold misses blinks for narrow-eyed faces; anchoring to the
+        median EAR (with a small absolute floor) is far more reliable.
+        """
+        if not ears:
+            return 0
+
+        baseline = float(np.median(ears))
+        threshold = max(self.ear_threshold, baseline * 0.85)
+
+        blink_count = 0
+        below_threshold = False
+        for ear in ears:
+            if ear < threshold and not below_threshold:
+                blink_count += 1
+                below_threshold = True
+            elif ear >= threshold:
+                below_threshold = False
+        return blink_count
 
     def _analyse_sync(self, frame_paths: Sequence[str]) -> Dict:
         ears: List[float] = []
@@ -65,14 +89,7 @@ class LivenessService:
                 )
             previous_points = points
 
-        blink_count = 0
-        below_threshold = False
-        for ear in ears:
-            if ear < self.ear_threshold and not below_threshold:
-                blink_count += 1
-                below_threshold = True
-            elif ear >= self.ear_threshold:
-                below_threshold = False
+        blink_count = self._count_blinks(ears)
 
         motion = float(np.mean(motions)) if motions else 0.0
         frames_processed = len(frame_paths)

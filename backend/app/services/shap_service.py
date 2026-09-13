@@ -97,12 +97,12 @@ class SHAPService:
         text = "Risk Assessment Explanation:\n\n"
 
         if positive:
-            text += "Positive Impact Factors:\n"
+            text += "Factors increasing risk:\n"
             for item in positive:
                 text += f"- {item['feature']}: {item['value']}\n"
 
         if negative:
-            text += "\nNegative Impact Factors:\n"
+            text += "\nFactors lowering risk:\n"
             for item in negative:
                 text += f"- {item['feature']}: {item['value']}\n"
 
