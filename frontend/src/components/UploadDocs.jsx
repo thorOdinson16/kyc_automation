@@ -1,17 +1,22 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { kycAPI } from '../services/api.js';
 import { validateImageQuality } from '../utils/imageValidation.js';
 import toast from 'react-hot-toast';
 import CameraCapture from './CameraCapture.jsx';
 
-function DocumentUploader({ label, docType, onUploaded, icon, captureMode = 'single' }) {
+function DocumentUploader({ label, docType, onUploaded, icon, captureMode = 'single', allowPdf = false }) {
   const inputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+
+  const isLiveness = captureMode === 'liveness';
+
+  const isPdfFile = (candidate) =>
+    candidate?.type === 'application/pdf' || /\.pdf$/i.test(candidate?.name || '');
 
   const pickFile = () => inputRef.current?.click();
 
@@ -25,10 +30,16 @@ function DocumentUploader({ label, docType, onUploaded, icon, captureMode = 'sin
       return;
     }
 
-    const validation = await validateImageQuality(selectedFile);
+    const validation = isPdfFile(selectedFile)
+      ? { isValid: true, issues: [] }
+      : await validateImageQuality(selectedFile);
+
     if (!validation.isValid) {
       validation.issues.forEach((issue) => toast.error(issue));
-      return;
+      const proceed = window.confirm(
+        `Quality check flagged:\n- ${validation.issues.join('\n- ')}\n\nUpload anyway?`
+      );
+      if (!proceed) return;
     }
 
     const appId = applicationId();
@@ -66,6 +77,11 @@ function DocumentUploader({ label, docType, onUploaded, icon, captureMode = 'sin
     const appId = applicationId();
     if (!appId) {
       toast.error('No application ID found. Please start over.');
+      return;
+    }
+
+    if (!Array.isArray(frames) || frames.length < 2) {
+      toast.error('Liveness capture needs at least 2 frames. Please try again.');
       return;
     }
 
@@ -140,26 +156,40 @@ function DocumentUploader({ label, docType, onUploaded, icon, captureMode = 'sin
 
       {!file ? (
         <div className="space-y-3">
-          <div
-            className="border-2 border-dashed border-gray-600 rounded-lg p-8 cursor-pointer hover:border-purple-500 transition-all text-center"
-            onClick={pickFile}
-          >
-            <p className="text-sm font-medium mb-1">Click to upload from files</p>
-            <p className="text-xs text-[color:var(--muted)]">JPEG, PNG or JPG (max 10MB)</p>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            className="hidden"
-            accept="image/jpeg,image/png,image/jpg"
-            onChange={handleFileChange}
-          />
+          {isLiveness ? (
+            <p className="text-xs text-[color:var(--muted)]">
+              Liveness requires the camera so we can verify you are physically present.
+            </p>
+          ) : (
+            <>
+              <div
+                className="border-2 border-dashed border-gray-600 rounded-lg p-8 cursor-pointer hover:border-purple-500 transition-all text-center"
+                onClick={pickFile}
+              >
+                <p className="text-sm font-medium mb-1">Click to upload from files</p>
+                <p className="text-xs text-[color:var(--muted)]">
+                  {allowPdf ? 'JPEG, PNG or PDF (max 10MB)' : 'JPEG, PNG or JPG (max 10MB)'}
+                </p>
+              </div>
+              <input
+                ref={inputRef}
+                type="file"
+                className="hidden"
+                accept={
+                  allowPdf
+                    ? 'image/jpeg,image/png,image/jpg,application/pdf'
+                    : 'image/jpeg,image/png,image/jpg'
+                }
+                onChange={handleFileChange}
+              />
+            </>
+          )}
 
           <button
             className="w-full btn-secondary py-4"
             onClick={() => setShowCamera(true)}
           >
-            {captureMode === 'liveness' ? 'Use Camera (liveness)' : 'Use Camera Instead'}
+            {isLiveness ? 'Open Camera for Liveness' : 'Use Camera Instead'}
           </button>
         </div>
       ) : (
@@ -189,17 +219,66 @@ function DocumentUploader({ label, docType, onUploaded, icon, captureMode = 'sin
   );
 }
 
+const REQUIRED_SLOTS = ['id_front', 'address_proof', 'utility_bill', 'selfie'];
+
+const slotLabel = (slot) => (slot || '').replace(/_/g, ' ');
+
 export default function UploadDocs() {
   const navigate = useNavigate();
-  const [uploaded, setUploaded] = useState({});
+  const [documents, setDocuments] = useState([]);
+  const [precheck, setPrecheck] = useState(null);
   const [processing, setProcessing] = useState(false);
 
-  const handleUploaded = (response) => {
-    setUploaded((prev) => ({ ...prev, [response.document_type]: true }));
+  const applicationId = () => localStorage.getItem('applicationId');
+
+  const refreshDocuments = async () => {
+    const id = applicationId();
+    if (!id) return;
+    try {
+      const data = await kycAPI.listDocuments(id);
+      setDocuments((data.documents || []).filter((doc) => doc.document_type !== 'liveness'));
+    } catch (err) {
+      console.error('List documents error:', err);
+    }
   };
 
-  const allDocsUploaded =
-    uploaded.id_front && uploaded.address_proof && uploaded.utility_bill && uploaded.selfie;
+  const runPrecheck = async () => {
+    const id = applicationId();
+    if (!id) return;
+    try {
+      const data = await kycAPI.precheck(id);
+      setPrecheck(data);
+    } catch (err) {
+      console.error('Precheck error:', err);
+    }
+  };
+
+  useEffect(() => {
+    refreshDocuments();
+  }, []);
+
+  const presentSlots = new Set(documents.map((doc) => doc.document_type));
+  const uploadedCount = REQUIRED_SLOTS.filter((slot) => presentSlots.has(slot)).length;
+  const allDocsUploaded = uploadedCount === REQUIRED_SLOTS.length;
+
+  useEffect(() => {
+    if (allDocsUploaded) runPrecheck();
+  }, [allDocsUploaded]);
+
+  const handleUploaded = async () => {
+    await refreshDocuments();
+  };
+
+  const moveDocument = async (documentId, suggestedRole) => {
+    try {
+      await kycAPI.reclassifyDocument(documentId, suggestedRole);
+      toast.success(`Moved to ${slotLabel(suggestedRole)}`);
+      await refreshDocuments();
+      await runPrecheck();
+    } catch (err) {
+      console.error('Move document error:', err);
+    }
+  };
 
   const startProcessing = async () => {
     if (!allDocsUploaded) {
@@ -207,8 +286,8 @@ export default function UploadDocs() {
       return;
     }
 
-    const applicationId = localStorage.getItem('applicationId');
-    if (!applicationId) {
+    const id = applicationId();
+    if (!id) {
       toast.error('No application ID found');
       navigate('/');
       return;
@@ -216,7 +295,7 @@ export default function UploadDocs() {
 
     setProcessing(true);
     try {
-      await kycAPI.startVerification(applicationId);
+      await kycAPI.startVerification(id);
       toast.success('Verification started!');
       navigate('/processing');
     } catch (err) {
@@ -236,9 +315,9 @@ export default function UploadDocs() {
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
-          <DocumentUploader label="ID Document" docType="id_front" icon="&#129072;" onUploaded={handleUploaded} />
-          <DocumentUploader label="Address Proof" docType="address_proof" icon="&#128205;" onUploaded={handleUploaded} />
-          <DocumentUploader label="Utility Bill" docType="utility_bill" icon="&#128196;" onUploaded={handleUploaded} />
+          <DocumentUploader label="ID Document" docType="id_front" icon="&#129072;" allowPdf onUploaded={handleUploaded} />
+          <DocumentUploader label="Address Proof" docType="address_proof" icon="&#128205;" allowPdf onUploaded={handleUploaded} />
+          <DocumentUploader label="Utility Bill" docType="utility_bill" icon="&#128196;" allowPdf onUploaded={handleUploaded} />
           <DocumentUploader
             label="Selfie Liveness"
             docType="selfie"
@@ -247,6 +326,47 @@ export default function UploadDocs() {
             onUploaded={handleUploaded}
           />
         </div>
+
+        {precheck && (
+          <div className="card space-y-3">
+            <h4 className="font-semibold">Document check</h4>
+            {precheck.documents.map((doc) => {
+              const detection = doc.detection || {};
+              const looksLike =
+                detection.id_type && detection.is_id
+                  ? detection.id_type
+                  : detection.is_bill
+                  ? detection.bill_category
+                  : detection.address_kind || 'unknown';
+              return (
+                <div
+                  key={doc.document_id}
+                  className="flex items-center justify-between text-sm gap-3"
+                >
+                  <span className="capitalize">{slotLabel(doc.document_type)}</span>
+                  <span className="text-[color:var(--muted)] flex-1 text-center">
+                    looks like: {looksLike}
+                  </span>
+                  {!doc.is_match && doc.suggested_role ? (
+                    <button
+                      className="btn-secondary py-1 px-3 text-xs"
+                      onClick={() => moveDocument(doc.document_id, doc.suggested_role)}
+                    >
+                      Move to {slotLabel(doc.suggested_role)}
+                    </button>
+                  ) : (
+                    <span className="text-green-400 text-xs">ok</span>
+                  )}
+                </div>
+              );
+            })}
+            {precheck.missing_roles?.length > 0 && (
+              <p className="text-xs text-yellow-400">
+                Still missing a valid: {precheck.missing_roles.map(slotLabel).join(', ')}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="flex gap-4">
           <button
@@ -275,12 +395,12 @@ export default function UploadDocs() {
         <div className="card">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-medium">Upload Progress</span>
-            <span className="text-sm text-[color:var(--muted)]">{Object.keys(uploaded).length} / 4 documents</span>
+            <span className="text-sm text-[color:var(--muted)]">{uploadedCount} / 4 documents</span>
           </div>
           <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 transition-all duration-500"
-              style={{ width: `${(Object.keys(uploaded).length / 4) * 100}%` }}
+              style={{ width: `${(uploadedCount / 4) * 100}%` }}
             />
           </div>
         </div>

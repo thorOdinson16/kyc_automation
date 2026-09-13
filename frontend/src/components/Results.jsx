@@ -79,7 +79,7 @@ export default function Results() {
 
           {data?.explainability?.top_positive_factors?.length > 0 && (
             <div className="mb-4">
-              <p className="text-sm text-green-400 mb-2">Positive factors</p>
+              <p className="text-sm text-red-400 mb-2">Factors increasing risk</p>
               {data.explainability.top_positive_factors.map((f, i) => (
                 <div key={i} className="flex items-center mb-2">
                   <span className="text-xs flex-1">{f.feature}</span>
@@ -91,7 +91,7 @@ export default function Results() {
 
           {data?.explainability?.top_negative_factors?.length > 0 && (
             <div>
-              <p className="text-sm text-red-400 mb-2">Negative factors</p>
+              <p className="text-sm text-green-400 mb-2">Factors lowering risk</p>
               {data.explainability.top_negative_factors.map((f, i) => (
                 <div key={i} className="flex items-center mb-2">
                   <span className="text-xs flex-1">{f.feature}</span>
@@ -126,11 +126,22 @@ export default function Results() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {documents.map((doc) => (
                 <div key={doc.document_id} className="border border-gray-700 rounded p-2">
-                  <img
-                    src={`${API_ORIGIN}${doc.view_url}`}
-                    alt={doc.document_type}
-                    className="w-full rounded"
-                  />
+                  {doc.mime_type === 'application/pdf' ? (
+                    <a
+                      href={`${API_ORIGIN}${doc.view_url}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center h-40 bg-black/30 rounded text-sm text-purple-300"
+                    >
+                      PDF document - open
+                    </a>
+                  ) : (
+                    <img
+                      src={`${API_ORIGIN}${doc.view_url}`}
+                      alt={doc.document_type}
+                      className="w-full rounded"
+                    />
+                  )}
                   <p className="text-xs mt-2 text-center">{doc.document_type}</p>
                 </div>
               ))}

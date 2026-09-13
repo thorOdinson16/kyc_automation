@@ -92,6 +92,11 @@ export const kycAPI = {
     return response.data;
   },
 
+  getProgress: async (applicationId) => {
+    const response = await api.get(`/verification/${applicationId}/progress`);
+    return response.data;
+  },
+
   getResults: async (applicationId) => {
     const response = await api.get(`/verification/${applicationId}/results`);
     return response.data;
@@ -104,6 +109,18 @@ export const kycAPI = {
 
   listDocuments: async (applicationId) => {
     const response = await api.get(`/documents/application/${applicationId}/list`);
+    return response.data;
+  },
+
+  precheck: async (applicationId) => {
+    const response = await api.post(`/verification/${applicationId}/precheck`);
+    return response.data;
+  },
+
+  reclassifyDocument: async (documentId, documentType) => {
+    const response = await api.patch(`/documents/${documentId}`, {
+      document_type: documentType,
+    });
     return response.data;
   },
 

@@ -2,12 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { kycAPI } from '../services/api.js';
 
-const STEPS = ['OCR', 'Face Match', 'Liveness', 'Entity Validation', 'Risk Scoring', 'Explainability'];
+const STEPS = [
+  'Application',
+  'OCR / text extraction',
+  'Face match',
+  'Liveness check',
+  'Entity validation',
+  'Risk scoring',
+  'Explainability',
+];
 
 export default function Processing() {
   const nav = useNavigate();
-  const [step, setStep] = useState(0);
-  const [status, setStatus] = useState('processing');
+  const [progress, setProgress] = useState({
+    stage: 'Starting',
+    step: 0,
+    status: 'processing',
+    elapsed_seconds: 0,
+  });
 
   useEffect(() => {
     const id = localStorage.getItem('applicationId');
@@ -17,13 +29,13 @@ export default function Processing() {
     }
 
     let mounted = true;
-    const timer = setInterval(async () => {
+
+    const poll = async () => {
       try {
-        const current = await kycAPI.getStatus(id);
+        const current = await kycAPI.getProgress(id);
         if (!mounted) return;
 
-        setStatus(current.status);
-        setStep((n) => Math.min(n + 1, STEPS.length - 1));
+        setProgress(current);
 
         if (['approved', 'rejected', 'review_required'].includes(current.status)) {
           clearInterval(timer);
@@ -32,7 +44,10 @@ export default function Processing() {
       } catch (err) {
         console.error(err);
       }
-    }, 2000);
+    };
+
+    poll();
+    const timer = setInterval(poll, 2000);
 
     return () => {
       mounted = false;
@@ -40,12 +55,17 @@ export default function Processing() {
     };
   }, [nav]);
 
+  const step = progress.step ?? 0;
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="card w-full max-w-lg text-center">
         <h2 className="text-2xl font-bold mb-2">Processing</h2>
-        <p className="text-[color:var(--muted)] mb-6">
-          Please wait while we analyse your documents ({status}).
+        <p className="text-[color:var(--muted)] mb-1">
+          Current step: <span className="text-white">{progress.stage}</span>
+        </p>
+        <p className="text-xs text-[color:var(--muted)] mb-6">
+          {Math.round(progress.elapsed_seconds || 0)}s elapsed - this can take up to a minute
         </p>
 
         <div className="space-y-2 text-left">
@@ -53,7 +73,11 @@ export default function Processing() {
             <div
               key={name}
               className={`flex items-center text-sm ${
-                index < step ? 'text-green-400' : index === step ? 'text-white' : 'text-[color:var(--muted)]'
+                index < step
+                  ? 'text-green-400'
+                  : index === step
+                  ? 'text-white'
+                  : 'text-[color:var(--muted)]'
               }`}
             >
               <span className="mr-3">{index < step ? '\u2713' : index === step ? '\u25CF' : '\u25CB'}</span>

@@ -1,47 +1,103 @@
+const MAX_DIMENSION = 512;
+const BLUR_VARIANCE_THRESHOLD = 80;
+const GLARE_FRACTION_THRESHOLD = 0.05;
+const GLARE_PIXEL_MIN_CHANNEL = 250;
+const DARK_LUMINANCE_THRESHOLD = 40;
+
 export async function validateImageQuality(file) {
+  // PDFs are not decodable via canvas; format checks happen server-side.
+  if (file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''))) {
+    return { isValid: true, issues: [], metrics: {} };
+  }
+
   return new Promise((resolve) => {
+    const done = (result) => resolve(result);
+    const passes = () => done({ isValid: true, issues: [], metrics: {} });
+
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onerror = passes;
+
+    reader.onload = (event) => {
       const img = new Image();
+      img.onerror = passes;
+
       img.onload = () => {
+        const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
+
         const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
+        canvas.width = width;
+        canvas.height = height;
+
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        
-        const imageData = ctx.getImageData(0, 0, img.width, img.height);
-        const data = imageData.data;
-        
-        // Blur detection (Laplacian variance)
-        let variance = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-          variance += Math.pow(gray - 128, 2);
+        ctx.drawImage(img, 0, 0, width, height);
+        const { data } = ctx.getImageData(0, 0, width, height);
+
+        const pixels = width * height;
+        const gray = new Float32Array(pixels);
+
+        let luminanceSum = 0;
+        let glarePixels = 0;
+
+        for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+          gray[p] = luminance;
+          luminanceSum += luminance;
+
+          // Real glare is a specular, near-saturated patch: all channels blown out.
+          if (Math.min(r, g, b) >= GLARE_PIXEL_MIN_CHANNEL) {
+            glarePixels += 1;
+          }
         }
-        variance /= (data.length / 4);
-        const isBlurry = variance < 100;
-        
-        // Brightness check
-        let brightness = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+
+        const meanLuminance = luminanceSum / pixels;
+        const glareFraction = glarePixels / pixels;
+
+        // Variance of the Laplacian is a standard focus/blur metric.
+        let lapSum = 0;
+        let lapSumSq = 0;
+        let count = 0;
+        for (let y = 1; y < height - 1; y += 1) {
+          for (let x = 1; x < width - 1; x += 1) {
+            const i = y * width + x;
+            const lap =
+              -4 * gray[i] + gray[i - 1] + gray[i + 1] + gray[i - width] + gray[i + width];
+            lapSum += lap;
+            lapSumSq += lap * lap;
+            count += 1;
+          }
         }
-        brightness /= (data.length / 4);
-        const hasGlare = brightness > 200;
-        const tooDark = brightness < 50;
-        
-        resolve({
+
+        const lapMean = count ? lapSum / count : 0;
+        const laplacianVariance = count ? lapSumSq / count - lapMean * lapMean : 0;
+
+        const isBlurry = laplacianVariance < BLUR_VARIANCE_THRESHOLD;
+        const hasGlare = glareFraction > GLARE_FRACTION_THRESHOLD;
+        const tooDark = meanLuminance < DARK_LUMINANCE_THRESHOLD;
+
+        done({
           isValid: !isBlurry && !hasGlare && !tooDark,
           issues: [
-            isBlurry && "Image is blurry - retake with steady hand",
-            hasGlare && "Too much glare - avoid direct light",
-            tooDark && "Image too dark - improve lighting"
-          ].filter(Boolean)
+            isBlurry && 'Image looks blurry - hold steady and retake',
+            hasGlare && 'Strong glare detected - avoid direct light or flash',
+            tooDark && 'Image too dark - move to better lighting',
+          ].filter(Boolean),
+          metrics: {
+            laplacianVariance: Number(laplacianVariance.toFixed(1)),
+            glareFraction: Number(glareFraction.toFixed(4)),
+            meanLuminance: Number(meanLuminance.toFixed(1)),
+          },
         });
       };
-      img.src = e.target.result;
+
+      img.src = event.target.result;
     };
+
     reader.readAsDataURL(file);
   });
 }
