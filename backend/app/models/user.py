@@ -26,4 +26,11 @@ class User(Base):
     applications = relationship("KYCApplication", back_populates="user")
 
     password_hash = Column(String(255), nullable=True)
-    role = Column(SQLEnum(UserRole), default=UserRole.APPLICANT)
+    role = Column(
+        SQLEnum(
+            UserRole,
+            name="userrole",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        default=UserRole.APPLICANT,
+    )

@@ -13,7 +13,7 @@ class AuditService:
     def _sanitize_json(data: Dict[str, Any]) -> Dict[str, Any]:
         """Convert numpy types -> native Python for JSONB."""
         def convert(v):
-            if isinstance(v, (np.bool_, np.bool8)):
+            if isinstance(v, np.bool_):
                 return bool(v)
             if isinstance(v, (np.float32, np.float64)):
                 return float(v)

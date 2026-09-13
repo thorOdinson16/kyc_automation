@@ -62,7 +62,15 @@ async def list_all_applications(
     """List all applications (reviewer/admin only)."""
     query = select(KYCApplication).order_by(KYCApplication.submitted_at.desc())
     if status_filter:
-        query = query.where(KYCApplication.status == status_filter)
+        try:
+            query = query.where(
+                KYCApplication.status == ApplicationStatus(status_filter.lower())
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid status filter: {status_filter}",
+            )
 
     result = await db.execute(query)
     return result.scalars().all()

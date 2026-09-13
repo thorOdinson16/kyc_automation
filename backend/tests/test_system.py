@@ -8,12 +8,12 @@ from app.core.security import security
 from app.database import AsyncSessionLocal
 from app.main import app
 from app.models.user import User, UserRole
-from app.services import (
-    entity_service as entity_module,
-    face_service as face_module,
-    liveness_service as liveness_module,
-    ocr_service as ocr_module,
-)
+from importlib import import_module
+
+ocr_module = import_module("app.services.ocr_service")
+face_module = import_module("app.services.face_service")
+liveness_module = import_module("app.services.liveness_service")
+entity_module = import_module("app.services.entity_service")
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 ID_CARD = os.path.join(FIXTURES, "id_card.jpeg")
@@ -167,3 +167,31 @@ async def test_reviewer_rbac():
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_missing_liveness_routes_to_review():
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/applications/",
+            json={"name": "No Liveness", "email": "noliveness@example.com"},
+        )
+        assert response.status_code == 201, response.text
+        application_id = response.json()["application_id"]
+
+        for document_type in ("id_front", "address_proof", "utility_bill"):
+            assert (await _upload(client, application_id, document_type, ID_CARD)).status_code == 200
+        assert (await _upload(client, application_id, "selfie", SELFIE)).status_code == 200
+
+        response = await client.post(f"/api/v1/verification/{application_id}/process")
+        assert response.status_code == 200
+
+        response = await client.get(f"/api/v1/verification/{application_id}/results")
+        assert response.status_code == 200
+        assert response.json()["status"] == "review_required"
+
+        response = await client.get(f"/api/v1/audit/{application_id}/trail")
+        actions = {entry["action_type"] for entry in response.json()["audit_trail"]}
+        assert "LIVENESS_NOT_CAPTURED" in actions
