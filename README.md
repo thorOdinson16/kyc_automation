@@ -296,7 +296,7 @@ frontend/
                      Processing, Results, ReviewerPanel
   src/services/      axios API client
   src/utils/         client-side image quality checks
-documents/           KYC_SRS.pdf, KYC_Report.pdf, SRS.md, README-style notes
+documents/           SRS.md, PROBLEM_STATEMENT.md, image.png
 ```
 
 ## Troubleshooting
@@ -317,5 +317,5 @@ documents/           KYC_SRS.pdf, KYC_Report.pdf, SRS.md, README-style notes
   then `python -m scripts.seed_users`.
 - **PII / secrets** — never commit `.env*`; `.gitignore` already excludes them.
 
-See `backend/README.md` for backend-specific notes and `documents/KYC_SRS.pdf` for the full
+See `backend/README.md` for backend-specific notes and `documents/SRS.md` for the full
 requirements specification.

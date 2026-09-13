@@ -1,4 +1,4 @@
-# **Problem Statement: Reimagining KYC with AI — Make It Effortless**
+# **Problem Statement & Product Overview**
 
 ## **Background / Motivation**
 
@@ -47,40 +47,7 @@ The solution must ensure **automation + compliance**, with full transparency, au
 
 ---
 
-## **Evaluation Criteria for Round 1**
-
-### **1. Concept (45 Points)**
-
-| Sub-Dimension                                      | Description                                                            |
-| -------------------------------------------------- | ---------------------------------------------------------------------- |
-| **1.1 AI System Architecture & Automation Design** | How well the automation pipeline is structured.                        |
-| **1.2 Compliance & Explainability Integration**    | Ability to meet regulatory obligations with auditable, explainable AI. |
-| **1.3 Data Handling & Accuracy Mechanisms**        | Data quality, model accuracy, and validation techniques.               |
-| **1.4 System Scalability & Security Architecture** | Ability to scale securely across large customer bases.                 |
-
----
-
-### **2. Innovation (30 Points)**
-
-| Sub-Dimension                             | Description                                                 |
-| ----------------------------------------- | ----------------------------------------------------------- |
-| **2.1 Novel Use of AI Techniques**        | Uniqueness and sophistication of AI components.             |
-| **2.2 User Experience Enhancements**      | Creativity in simplifying onboarding.                       |
-| **2.3 Reg-Tech Synergy & Ethical Design** | Alignment with regulatory technology and ethical standards. |
-
----
-
-### **3. Impact (25 Points)**
-
-| Sub-Dimension                                   | Description                                              |
-| ----------------------------------------------- | -------------------------------------------------------- |
-| **3.1 Operational Efficiency & Cost Reduction** | Resource savings and automation benefits.                |
-| **3.2 Compliance Uplift & Risk Reduction**      | Reduction in errors, fraud, and compliance gaps.         |
-| **3.3 Scalability & Adoption Potential**        | Practicality, ease of adoption, and long-term relevance. |
-
----
-
-# **Round 1**
+# **Solution Overview**
 
 * The system is built using **FastAPI** with **Python** as the backend, **PostgreSQL** with the **pgvector** extension for data and embeddings, and **React**, **Vite**, and **TailwindCSS** for a fast, responsive, and intuitive frontend. It automates the entire **KYC process** — from **document upload** to **verification** and **risk-based decisioning** — ensuring an effortless onboarding experience for customers.
 
@@ -96,15 +63,13 @@ The solution must ensure **automation + compliance**, with full transparency, au
 
 * **Data security** and **compliance** are central to the design. All personally identifiable information is encrypted using **AES-256** at rest and **TLS 1.3** during transmission. **PostgreSQL** maintains **immutable audit logs**, ensuring every system decision is **traceable** and **auditable** in line with **AML** and **KYC regulations**.
 
-* The backend architecture is **modular** and **asynchronous**, allowing **FastAPI** to handle multiple onboarding requests efficiently. The system runs smoothly on a **single environment** for hackathon deployment but is **container-ready** for future scaling using **Docker** or **Kubernetes**.
+* The backend architecture is **modular** and **asynchronous**, allowing **FastAPI** to handle multiple onboarding requests efficiently. The system runs smoothly on a **single environment** but is **container-ready** for future scaling using **Docker** or **Kubernetes**.
 
 * The user interface offers a **guided onboarding journey** with **live feedback**, **progress tracking**, and **contextual nudges** such as “**Retake – glare detected**.” This reduces upload errors, improves completion rates, and ensures a **frictionless user experience**.
 
 * The solution significantly improves **KYC efficiency** by automating up to **80%** of manual verification work, reducing processing costs by nearly **70%**, and cutting onboarding time from **days to minutes**. With **explainable AI**, strong **compliance**, and **scalable design**, the system delivers a **transparent**, **ethical**, and **adoption-ready KYC experience** for banks and fintech organizations worldwide.
 
 ---
-
-# **Round 2**
 
 # **Technology Stack**
 
@@ -516,7 +481,7 @@ Security and regulatory compliance are core to the system's design. All user dat
 # **Scalability and Performance**
 
 ## **Overview**
-The system is designed with a modular and asynchronous FastAPI backend, enabling smooth handling of multiple KYC onboarding flows simultaneously. While deployed in a single environment for hackathon purposes, the architecture is built to scale horizontally and adapt to container-based deployment in the future.
+The system is designed with a modular and asynchronous FastAPI backend, enabling smooth handling of multiple KYC onboarding flows simultaneously. While deployed in a single environment, the architecture is built to scale horizontally and adapt to container-based deployment in the future.
 
 ---
 
@@ -533,7 +498,7 @@ The system is designed with a modular and asynchronous FastAPI backend, enabling
 - Reduces system bottlenecks and improves reliability.
 
 ### **Container-Ready Design**
-- Though deployed in a single system for the hackathon, the architecture is **Docker/Kubernetes-ready**.
+- Though deployed in a single system, the architecture is **Docker/Kubernetes-ready**.
 - Enables future horizontal scaling:
   - Multiple OCR containers
   - Separate face verification and liveness services
@@ -596,6 +561,6 @@ The system is designed with a modular and asynchronous FastAPI backend, enabling
 - Load balancers can distribute onboarding requests evenly.
 - PostgreSQL can be horizontally scaled with read replicas.
 
-The current architecture ensures reliable hackathon performance while providing a clear roadmap for production-grade scalability.
+The current architecture ensures reliable performance while providing a clear roadmap for production-grade scalability.
 
 ---

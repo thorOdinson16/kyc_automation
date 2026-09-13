@@ -1,6 +1,5 @@
 # Software Requirements Specification (SRS)
-**Project:** AI-Powered KYC — "Reimagining KYC with AI"  
-**Prepared for:** Round 2 Hackathon Submission  
+**Project:** KYC Automation  
 **Prepared by:** Codeists  
 **Date:** 13/11/2025
 
@@ -12,7 +11,7 @@
 This SRS specifies functional and non-functional requirements for an AI-powered KYC onboarding system that automates document collection, identity verification, risk scoring, and provides auditability and explainability for compliance.
 
 ### 1.2 Scope
-The system supports end-to-end KYC onboarding: document upload, OCR extraction, selfie–ID face verification, liveness detection, entity validation, risk scoring, explainability, immutable audit logging, and decisioning (auto-approve / manual review). It targets hackathon deployment (single environment) with a container-ready architecture for future scaling.
+The system supports end-to-end KYC onboarding: document upload, OCR extraction, selfie–ID face verification, liveness detection, entity validation, risk scoring, explainability, immutable audit logging, and decisioning (auto-approve / manual review). It targets a single-environment deployment with a container-ready architecture for future scaling.
 
 ### 1.3 Definitions, Acronyms, Abbreviations
 - API: Application Programming Interface  
@@ -34,21 +33,20 @@ Modular, asynchronous backend (FastAPI) with a React + Vite + TailwindCSS fronte
 - **System administrators / DevOps:** deploy and maintain application.
 
 ### 2.3 Operating Environment
-- Backend: Python + FastAPI (async) running on Linux (single environment for hackathon).  
+- Backend: Python + FastAPI (async) running on Linux (single environment).  
 - Frontend: Browser (modern).  
 - Database: PostgreSQL with pgvector.  
 - Transport: TLS 1.3.  
 - Storage: Encrypted at rest (AES-256).
 
 ### 2.4 Design & Implementation Constraints
-- Use only the components listed in Round 1 (EasyOCR, Tesseract, FaceNet, Mediapipe, BERT, XGBoost, SHAP, PostgreSQL + pgvector, FastAPI, React/Vite/TailwindCSS).  
+- The implementation uses the following components: EasyOCR and Tesseract (OCR), FaceNet (face verification), Mediapipe (liveness), BERT (entity extraction), XGBoost (risk scoring), SHAP (explainability), PyMuPDF (PDF processing), PostgreSQL + pgvector, FastAPI (backend) and React/Vite/TailwindCSS (frontend).  
 - All PII must be encrypted at rest with AES-256 and in transit with TLS 1.3.  
 - PostgreSQL must maintain immutable audit logs.
 
 ### 2.5 Assumptions & Dependencies
 - Users have device cameras for selfie & simple document capture.  
-- Demo and code links will be public for submission.  
-- Infrastructure for the hackathon is a single environment; containerization is optional but supported.
+- The deployment target is a single environment; containerization is optional but supported.
 
 ---
 
@@ -95,10 +93,10 @@ Modular, asynchronous backend (FastAPI) with a React + Vite + TailwindCSS fronte
 ### NFR-1: Security
 - NFR-1.1: All PII stored at rest shall be encrypted with AES-256.  
 - NFR-1.2: All network communication shall use TLS 1.3.  
-- NFR-1.3: Role-based access must be enforced for reviewer and admin interfaces (RBAC is implied by Round 1; implement reviewers/admin separation).
+- NFR-1.3: Role-based access shall be enforced for reviewer and admin interfaces (reviewer/admin separation).
 
 ### NFR-2: Performance
-- NFR-2.1: System shall process onboarding pipeline end-to-end in a time suitable for user interaction (target: minutes). *(Round 1 indicates days → minutes improvement.)*  
+- NFR-2.1: System shall process the onboarding pipeline end-to-end in a time suitable for user interaction (target: minutes, reducing onboarding from days).  
 - NFR-2.2: OCR and face verification modules shall operate concurrently (asynchronously) to minimize latency.
 
 ### NFR-3: Scalability
@@ -171,8 +169,8 @@ Storage constraints:
 ---
 
 ## 9. Constraints & Assumptions
-- Constraints: Use specified components only; single environment hackathon deployment.  
-- Assumptions: Users can capture legible documents and selfies; demo links will be public.
+- Constraints: Use the specified components; single-environment deployment.  
+- Assumptions: Users can capture legible documents and selfies.
 
 ---
 

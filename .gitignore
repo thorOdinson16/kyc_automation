@@ -52,6 +52,7 @@ frontend/.next/
 *.sqlite3
 *.db
 *.bak
+repomix-output*.md
 
 ###############################
 # OS items
