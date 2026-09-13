@@ -37,7 +37,11 @@ before storage; `/view` serves them as attachments with `nosniff`.
   application. Document routes (`upload`, `upload/liveness`, `view`, `PATCH`,
   `list`) accept either that scoped token or a reviewer/admin JWT, and always
   verify the token against the owning `application_id` (no bare-document IDOR).
-- `/auth/login` is rate-limited by IP and IP+email (Redis, 429 + `Retry-After`).
+- `/auth/login` is rate-limited by IP and IP+email (429 + `Retry-After`). With
+  `REDIS_URL` set the counter is Redis-backed and shared across workers; if Redis
+  is unreachable the limiter fails fast (~0.25s) to the in-process window, logs
+  once at ERROR, and trips a circuit breaker for `REDIS_COOLDOWN_SECONDS`.
+  Leave `REDIS_URL` empty for in-process-only limiting.
 - Passwords use PBKDF2-HMAC-SHA256 (200k) with a constant-time comparison.
 - Files are AES-256-GCM encrypted at rest; the audit log is append-only.
 - The pipeline is guarded by a per-application Postgres advisory lock and is
@@ -51,8 +55,9 @@ See the root `README.md` for the full threat model.
 
 - Python 3.10+
 - PostgreSQL 14+ with the `pgvector` extension
-- Redis (optional; powers cross-worker login rate limiting — the limiter
-  degrades to an in-process window with a loud ERROR log if Redis is down)
+- Redis (optional; set `REDIS_URL` for cross-worker login rate limiting. If
+  unset, limiting is in-process. If set but down, the limiter fails fast to the
+  in-process window, logs once, and backs off via a circuit breaker.)
 - Tesseract (used as the OCR fallback). On Windows: `scoop install tesseract`
   (or the UB Mannheim installer), plus the `eng.traineddata` language file.
   The path can be forced with `TESSERACT_CMD` in `.env`.

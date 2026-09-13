@@ -138,7 +138,8 @@ The controls above are deliberate responses to specific threats:
 | **PII exposure at rest / in transit** | AES-256-GCM authenticated encryption for stored files; optional TLS 1.3 (`python run.py --tls`). |
 | **Audit tampering** | `audit_logs` is append-only enforced by a database trigger; pipeline resume state is derived from it, so "what happened" cannot be silently rewritten. |
 | **Duplicate / replayed pipeline triggers** | A Postgres advisory lock (`app/core/pipeline_lock.py`) admits one run per application; completed runs are a no-op and stage outputs are idempotent. |
-| **Cache outage taking down auth** | The rate limiter fails **open** (availability) but logs at ERROR so the degraded state is visible. |
+| **Cache outage taking down auth** | The rate limiter fails **open** (availability) but fails fast (~0.25s socket timeout, no exponential retries), logs the first failure at ERROR, then trips a circuit breaker for `REDIS_COOLDOWN_SECONDS` so the dead cache adds no per-request latency or log volume. |
+| **Auth control silently no-op'ing** | Redis is opt-in via `REDIS_URL`; leave it empty to use the in-process limiter instead of a permanently-degraded Redis path. |
 
 **Accepted residual risks / non-goals**
 

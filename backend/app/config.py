@@ -56,13 +56,25 @@ class Settings(BaseSettings):
     # Observability
     LOG_JSON: bool = True
 
-    # Login rate limiting (Redis-backed, in-memory fallback when unreachable)
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Login rate limiting.
+    #   REDIS_URL empty -> in-process limiter (local dev / single worker)
+    #   REDIS_URL set   -> Redis fixed-window, shared across workers
+    # On a Redis outage the limiter fails open to the in-process window and
+    # stops probing Redis for REDIS_COOLDOWN_SECONDS (circuit breaker).
+    REDIS_URL: str = ""
+    REDIS_CONNECT_TIMEOUT: float = 0.25
+    REDIS_SOCKET_TIMEOUT: float = 0.25
+    REDIS_COOLDOWN_SECONDS: int = 30
     RATE_LIMIT_ENABLED: bool = True
     LOGIN_RATE_LIMIT: int = 5
     LOGIN_RATE_WINDOW_SECONDS: int = 60
 
     DEBUG: bool = False
+
+    @field_validator("REDIS_URL", mode="before")
+    @classmethod
+    def _normalize_redis_url(cls, value) -> str:
+        return (value or "").strip()
 
     @field_validator(
         "UPLOAD_DIR",
