@@ -1,7 +1,5 @@
 # Software Requirements Specification (SRS)
-**Project:** KYC Automation  
-**Prepared by:** Codeists  
-**Date:** 13/11/2025
+**Project:** KYC Automation
 
 ---
 
