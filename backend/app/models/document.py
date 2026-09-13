@@ -12,6 +12,7 @@ class Document(Base):
     application_id = Column(UUID(as_uuid=True), ForeignKey("kyc_applications.application_id"), nullable=False)
     document_type = Column(String(100), nullable=False)  # ID_CARD, UTILITY_BILL, ADDRESS_PROOF, SELFIE
     raw_file_path = Column(Text, nullable=False)  # Path to encrypted file
+    mime_type = Column(String(100), nullable=True)  # image/jpeg, application/pdf, ...
     extracted_text = Column(JSONB, nullable=True)
     ocr_confidence = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

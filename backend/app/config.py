@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     BERT_MODEL_NAME: str = "dslim/bert-base-NER"
     XGBOOST_MODEL_PATH: str = "./models/xgboost_risk.json"
 
+    # Liveness tuning
+    LIVENESS_EAR_THRESHOLD: float = 0.21
+    LIVENESS_MOTION_THRESHOLD: float = 0.0015
+
+    # OCR
+    TESSERACT_CMD: Optional[str] = None
+    OCR_USE_GPU: bool = True
+    OCR_MAX_DIMENSION: int = 1600
+    PDF_MAX_PAGES: int = 5
+    PDF_RENDER_DPI: int = 150
+
     # TLS 1.3 (optional; enforced when both cert and key are provided)
     SSL_CERTFILE: Optional[str] = None
     SSL_KEYFILE: Optional[str] = None

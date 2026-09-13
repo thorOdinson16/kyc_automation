@@ -7,6 +7,8 @@ import torch
 from facenet_pytorch import InceptionResnetV1, MTCNN
 from PIL import Image
 
+from app.services.pdf_service import pdf_service
+
 
 class FaceService:
     """One-to-one face verification using FaceNet (InceptionResnetV1) + MTCNN."""
@@ -31,6 +33,8 @@ class FaceService:
 
     async def _ensure_filepath(self, src) -> str:
         if isinstance(src, str):
+            if pdf_service.is_pdf(src):
+                return self._first_page_with_face(src)
             return src
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
@@ -38,6 +42,20 @@ class FaceService:
         tmp.flush()
         tmp.close()
         return tmp.name
+
+    def _first_page_with_face(self, pdf_path: str) -> str:
+        pages = pdf_service.render_pages(pdf_path)
+        if not pages:
+            raise ValueError("Could not read PDF pages for face detection")
+
+        for page_path in pages:
+            try:
+                image = Image.open(page_path).convert("RGB")
+                if self.detector(image) is not None:
+                    return page_path
+            except Exception:
+                continue
+        return pages[0]
 
     def _embedding_sync(self, image_path: str) -> np.ndarray:
         image = Image.open(image_path).convert("RGB")

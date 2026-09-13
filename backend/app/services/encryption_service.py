@@ -46,7 +46,7 @@ class EncryptionService:
 
         return encrypted_path, base64.b64encode(nonce).decode()
 
-    async def decrypt_file(self, encrypted_path: str) -> str:
+    async def decrypt_file(self, encrypted_path: str, suffix: str = ".jpg") -> str:
         """Decrypt a file and return the path to a temporary plaintext copy."""
         with open(encrypted_path, "rb") as handle:
             blob = handle.read()
@@ -54,7 +54,7 @@ class EncryptionService:
         nonce, ciphertext = blob[:_NONCE_SIZE], blob[_NONCE_SIZE:]
         plaintext = self._aead.decrypt(nonce, ciphertext, None)
 
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tmp.write(plaintext)
         tmp.flush()
         tmp.close()

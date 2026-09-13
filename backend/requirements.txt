@@ -27,6 +27,8 @@ opencv-python
 Pillow
 numpy<2
 pandas
+rapidfuzz
+PyMuPDF
 
 # FaceNet. facenet-pytorch 2.6.0 declares torch<2.3, which conflicts with
 # transformers (torch>=2.4), so it is intentionally NOT listed here. Install it
