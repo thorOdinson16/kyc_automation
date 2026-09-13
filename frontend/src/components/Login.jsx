@@ -18,14 +18,17 @@ export default function Login() {
     setSubmitting(true);
     try {
       const data = await kycAPI.login(email, password);
+
+      if (data.role !== 'reviewer' && data.role !== 'admin') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('role');
+        toast.error('Staff access only. Applicants start from the home page.');
+        return;
+      }
+
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('role', data.role);
-
-      if (data.role === 'reviewer' || data.role === 'admin') {
-        nav('/reviewer');
-      } else {
-        nav('/onboard');
-      }
+      nav('/reviewer');
     } catch (err) {
       console.error('Login error:', err);
     } finally {

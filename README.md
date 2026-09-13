@@ -265,7 +265,8 @@ Seeded accounts:
 | Applicant | `applicant@kyc.ai` | `applicant123` |
 
 Flow: **Landing → Onboard (user details) → Upload (4 docs + liveness) → Processing → Results**;
-reviewers sign in via **Staff Login** and are routed to the Reviewer Panel.
+reviewers sign in via **Staff Login** and are routed to the Reviewer Panel. Staff Login accepts
+`reviewer`/`admin` only — applicants begin at **Begin Verification** on the landing page.
 
 ## Testing
 
