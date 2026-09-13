@@ -92,16 +92,22 @@ async def _persist_upload(
     async with aiofiles.open(temp_path, "wb") as handle:
         await handle.write(content)
 
-    if mime == "application/pdf":
-        try:
+    try:
+        if mime == "application/pdf":
             temp_path = pdf_service.validate_and_sanitize(temp_path)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(exc),
-            ) from exc
-
-    encrypted_path, _ = await encryption_service.encrypt_file(temp_path)
+        encrypted_path, _ = await encryption_service.encrypt_file(
+            temp_path, output_dir=settings.ENCRYPTED_STORAGE_DIR
+        )
+    except ValueError as exc:
+        encryption_service.remove_temp_file(temp_path)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        # Never leave a plaintext upload behind on unexpected failures.
+        encryption_service.remove_temp_file(temp_path)
+        raise
 
     return Document(
         application_id=application_id,
@@ -192,6 +198,7 @@ async def view_document(
 ):
     """Decrypt and return a document for viewing."""
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
 
     document = await db.get(Document, document_id)
     if not document:
@@ -208,6 +215,8 @@ async def view_document(
         filename=f"{document.document_type}{_suffix_for_mime(mime)}",
         content_disposition_type="attachment",
         headers={"X-Content-Type-Options": "nosniff"},
+        # The decrypted copy is plaintext PII: delete it once served.
+        background=BackgroundTask(encryption_service.remove_temp_file, decrypted_path),
     )
 
 

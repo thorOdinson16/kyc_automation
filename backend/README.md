@@ -157,10 +157,27 @@ Seeded accounts: `reviewer@kyc.ai / review123`, `admin@kyc.ai / admin123`,
 
 ## Test
 
-Pytest uses the `.env.test` database and runs the KYC pipeline synchronously
-(`RUN_SYNC`). The AI models are stubbed for speed; real services were verified
-separately. The per-application pipeline lock is stress-tested under repeated
-concurrent triggers in `tests/test_pipeline_lock_stress.py`.
+Pytest runs against a **dedicated test database** and isolated storage dirs, so
+it never touches your development data. `.env.test` points at `kyc_db_test`
+with `UPLOAD_DIR=./uploads_test` / `ENCRYPTED_STORAGE_DIR=./encrypted_test`,
+and `tests/conftest.py` refuses to run unless the database name contains
+`_test`. Create and migrate it once:
+
+```sql
+CREATE DATABASE kyc_db_test;
+\c kyc_db_test
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+```bash
+set PYTEST=1
+venv\Scripts\python -m alembic upgrade head
+```
+
+Then run the suite. The KYC pipeline runs synchronously (`RUN_SYNC`); the AI
+models are stubbed for speed (real services were verified separately). The
+per-application pipeline lock is stress-tested under repeated concurrent
+triggers in `tests/test_pipeline_lock_stress.py`.
 
 ```bash
 set PYTEST=1

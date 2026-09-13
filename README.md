@@ -272,9 +272,15 @@ reviewers sign in via **Staff Login** and are routed to the Reviewer Panel. Staf
 
 ```bash
 cd backend
+# one-time: create + migrate the isolated test database
+#   CREATE DATABASE kyc_db_test; \c kyc_db_test; CREATE EXTENSION vector;
 set PYTEST=1
+venv\Scripts\python -m alembic upgrade head
 venv\Scripts\python -m pytest -s
 ```
+
+Tests run against `.env.test` (`kyc_db_test`) with isolated `*_test` storage dirs
+and will refuse to start if pointed at the development database.
 
 The suite covers the full pipeline (with AI models stubbed for speed), document verification
 classifiers, PDF handling/validation, liveness blink logic, RBAC and encryption. The

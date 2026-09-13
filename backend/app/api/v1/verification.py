@@ -86,6 +86,7 @@ async def precheck_documents(
         text = ""
         entities = {}
         detection = {"suggested_role": None}
+        path = None
         try:
             path = await encryption_service.decrypt_file(
                 document.raw_file_path, suffix=_doc_suffix(document)
@@ -96,6 +97,8 @@ async def precheck_documents(
             detection = document_verification_service.classify_document(text, entities)
         except Exception as exc:  # noqa: BLE001 - report per document
             detection = {"suggested_role": None, "error": str(exc)}
+        finally:
+            encryption_service.remove_temp_file(path)
 
         infos.append(
             {

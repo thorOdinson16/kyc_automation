@@ -34,6 +34,8 @@ class PipelineContext:
     utility_path: Optional[str] = None
     selfie_path: Optional[str] = None
     frame_paths: List[str] = field(default_factory=list)
+    # Decrypted plaintext temp files, removed when the run finishes.
+    temp_files: List[str] = field(default_factory=list)
 
     ocr_id: Optional[Dict[str, Any]] = None
     ocr_address: Optional[Dict[str, Any]] = None

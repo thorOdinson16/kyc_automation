@@ -112,6 +112,14 @@ async def load_documents_stage(ctx: PipelineContext) -> None:
         for document in ctx.liveness_docs
     ]
 
+    ctx.temp_files = [
+        ctx.id_path,
+        ctx.address_path,
+        ctx.utility_path,
+        ctx.selfie_path,
+        *ctx.frame_paths,
+    ]
+
 
 async def run_ocr_stage(ctx: PipelineContext) -> str:
     start = time.perf_counter()

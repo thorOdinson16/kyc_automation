@@ -27,7 +27,7 @@ from app.core.pipeline_stages import (
 from app.database import AsyncSessionLocal
 from app.models.application import ApplicationStatus, KYCApplication
 from app.models.audit_log import AuditLog
-from app.services import audit_service
+from app.services import audit_service, encryption_service
 
 # Ordered execution plan: stage name -> callable.
 STAGE_ORDER = [
@@ -115,6 +115,7 @@ async def process_kyc_pipeline(application_id: UUID) -> dict:
             return {"status": "already_running"}
 
         async with AsyncSessionLocal() as db:
+            ctx = None
             try:
                 application = await db.get(KYCApplication, application_id)
                 if not application:
@@ -155,3 +156,8 @@ async def process_kyc_pipeline(application_id: UUID) -> dict:
             except Exception as exc:  # noqa: BLE001 - record and surface via status
                 await _mark_failed(db, application_id, str(exc))
                 return {"status": "failed", "error": str(exc)}
+            finally:
+                # Decrypted plaintext copies are PII: always remove them.
+                if ctx is not None:
+                    for path in ctx.temp_files:
+                        encryption_service.remove_temp_file(path)

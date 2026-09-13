@@ -31,7 +31,11 @@ class PDFService:
         PDFs. Returns the path to a sanitized copy (the input is removed).
         """
         try:
-            document = pymupdf.open(path)
+            # Open from an in-memory stream: opening by path can leave the file
+            # locked on Windows when the open fails, which then blocks cleanup.
+            with open(path, "rb") as handle:
+                data = handle.read()
+            document = pymupdf.open(stream=data, filetype="pdf")
         except Exception as exc:  # noqa: BLE001 - surface as a client error
             raise ValueError("Unreadable or corrupt PDF") from exc
 

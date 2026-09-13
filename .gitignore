@@ -15,8 +15,8 @@ __pycache__/
 ###############################
 backend/.pytest_cache/
 backend/__pycache__/
-backend/uploads/
-backend/encrypted/
+backend/uploads*/
+backend/encrypted*/
 
 # Python virtual environment
 backend/venv/

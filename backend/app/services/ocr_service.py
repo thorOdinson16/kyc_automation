@@ -319,12 +319,18 @@ class OCRService:
         confidences: List[float] = []
         engine = "easyocr"
 
-        for page_path in page_paths:
-            page_result = await self.extract_text(page_path, use_fallback=use_fallback)
-            all_lines.extend(page_result.get("lines", []))
-            confidences.append(page_result.get("confidence", 0.0))
-            if page_result.get("ocr_engine") != "easyocr":
-                engine = page_result["ocr_engine"]
+        try:
+            for page_path in page_paths:
+                page_result = await self.extract_text(
+                    page_path, use_fallback=use_fallback
+                )
+                all_lines.extend(page_result.get("lines", []))
+                confidences.append(page_result.get("confidence", 0.0))
+                if page_result.get("ocr_engine") != "easyocr":
+                    engine = page_result["ocr_engine"]
+        finally:
+            if page_paths:
+                shutil.rmtree(os.path.dirname(page_paths[0]), ignore_errors=True)
 
         lines = [line for line in all_lines if line.strip()]
         confidence = float(np.mean(confidences)) if confidences else 0.0
